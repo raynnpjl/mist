@@ -1,35 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import type { AddressInfo } from "node:net";
-import { Installations } from "../src/installations.js";
 import { defaultSettings, parseSettings, Settings } from "../src/settings.js";
 import { createApp } from "../src/app.js";
 import { createProviders } from "../src/providers.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { MediaInspector } from "../src/media.js";
 import { AddonService } from "../src/service.js";
-import { drama, fixtures, TEST_SOURCES } from "./fixtures.js";
+import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
-test("preferences default to all sources and persist independently of encrypted key updates", async t => {
-  const dir = await mkdtemp(join(tmpdir(), "mist-preferences-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = await Installations.open(dir);
+test("preferences default to all sources and persist independently of concurrent encrypted key updates", async () => {
+  const redis = installationFixture();
+  const store = await redis.open();
   const id = await store.save("0123456789abcdef0123456789abcdef");
-  assert.deepEqual(await store.settings(id), defaultSettings());
+  assert.deepEqual((await store.get(id))?.settings, defaultSettings());
   const settings = { sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500 };
-  await store.saveSettings(id, settings);
-  await store.save("11111111111111111111111111111111", id);
-  const reopened = await Installations.open(dir);
-  assert.deepEqual(await reopened.settings(id), settings);
-  assert.equal(await reopened.get(id), "11111111111111111111111111111111");
-  const path = join(dir, `${id}.preferences.json`);
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
-  assert.ok(!(await readFile(path, "utf8")).includes("11111111111111111111111111111111"));
+  await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
+  const reopened = await redis.open();
+  assert.deepEqual((await reopened.get(id))?.settings, settings);
+  assert.equal((await reopened.get(id))?.apiKey, "11111111111111111111111111111111");
+  assert.ok(!JSON.stringify([...redis.records.get(`mist:installation:${id}`)!.values()]).includes("11111111111111111111111111111111"));
 });
 
 test("preferences reject empty, duplicate or unknown sources and invalid time windows", () => {
@@ -60,8 +52,8 @@ test("pending status checks do not consume stream-search slots", async () => {
 });
 
 test("dashboard preferences affect streams and inspection budgets, while status reports real provider checks", async t => {
-  const dir = await mkdtemp(join(tmpdir(), "mist-dashboard-"));
-  const store = await Installations.open(dir);
+  const redis = installationFixture();
+  const store = await redis.open();
   const fixture = fixtures([drama()], 5);
   const budgets: number[] = [];
   const used: Settings[] = [];
@@ -76,13 +68,15 @@ test("dashboard preferences affect streams and inspection budgets, while status 
     return new AddonService(providers.filter(p => settings.sources.includes(p.source.id)), new MetadataResolver(fetcher, key), fetcher,
       new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs));
   };
+  const replicaStore = await redis.open();
   const server = createApp(store, factory, providers).listen(0, "127.0.0.1");
+  const replica = createApp(replicaStore, factory, providers).listen(0, "127.0.0.1");
   t.after(async () => {
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    await rm(dir, { recursive: true, force: true });
+    await Promise.all([server, replica].map(instance => new Promise<void>((resolve, reject) => instance.close(error => error ? reject(error) : resolve()))));
   });
-  await once(server, "listening");
+  await Promise.all([once(server, "listening"), once(replica, "listening")]);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const replicaBase = `http://127.0.0.1:${(replica.address() as AddressInfo).port}`;
   const key = "0123456789abcdef0123456789abcdef";
   const response = await fetch(`${base}/api/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey: key }) });
   const { installation: id } = await response.json();
@@ -93,14 +87,16 @@ test("dashboard preferences affect streams and inspection budgets, while status 
     "configuration must not expose provider endpoints or hostnames");
   assert.deepEqual(JSON.parse(initial).settings, defaultSettings());
   const streamUrl = `${base}/${id}/stream/series/tt26235088:1:1.json`;
+  const replicaStreamUrl = `${replicaBase}/${id}/stream/series/tt26235088:1:1.json`;
   assert.equal((await (await fetch(streamUrl)).json()).streams.length, 5);
+  assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 5);
   const update = (settings: unknown, origin = base) => fetch(`${endpoint}/settings`, { method: "PUT",
     headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(settings) });
   const settings = { sources: ["hongniu"], inspectionTimeoutMs: 2000 };
   assert.equal((await update(settings, "https://unrelated.example")).status, 403);
   assert.equal((await update({ ...settings, sources: [] })).status, 400);
   assert.equal((await update(settings)).status, 200);
-  assert.deepEqual(await store.settings(id), settings);
+  assert.deepEqual((await store.get(id))?.settings, settings);
   budgets.length = 0; used.length = 0;
   const streams = (await (await fetch(streamUrl)).json()).streams;
   assert.equal(streams.length, 1);
@@ -108,6 +104,9 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.deepEqual(used, [settings], "saving preferences must replace the cached service");
   assert.equal(budgets.length, 1);
   assert.ok(budgets[0] > 0 && budgets[0] <= 2000);
+  used.length = 0;
+  assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 1);
+  assert.deepEqual(used, [settings], "another instance must see saved preferences despite its warm cache");
   const status = await (await fetch(`${endpoint}/status`)).json();
   assert.equal(status.providers.length, 5);
   assert.equal(status.providers.find(p => p.id === "baofeng").available, false);

@@ -2,17 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createApp, manifest } from "../src/app.js";
 import { MetadataResolver, parseVideo } from "../src/metadata.js";
 import { AddonService } from "../src/service.js";
 import { Provider } from "../src/providers.js";
 import { Pool } from "../src/cache.js";
 import { MediaInspector } from "../src/media.js";
-import { drama, fixtures, TEST_SOURCES } from "./fixtures.js";
-import { Installations } from "../src/installations.js";
+import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
 test("Mist is stream-only and eligible for IMDb and TMDB episodes from existing catalogs", () => {
   assert.deepEqual(manifest.catalogs, []);
@@ -131,8 +127,7 @@ test("metadata for a different external ID cannot map a request to the wrong sho
 test("HTTP direct episode requests return streams and CORS; catalogs and metadata are absent", async () => {
   const fixture = fixtures([drama()]);
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
-  const directory = await mkdtemp(join(tmpdir(), "mist-http-"));
-  const installations = await Installations.open(directory);
+  const installations = await installationFixture().open();
   const id = await installations.save("0123456789abcdef0123456789abcdef");
   const server = createApp(installations, () => service, fixture.providers).listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -155,6 +150,5 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
     assert.ok(!/\p{Script=Han}/u.test(withoutProviderNames));
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    await rm(directory, { recursive: true, force: true });
   }
 });

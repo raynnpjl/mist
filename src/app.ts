@@ -16,7 +16,7 @@ export const manifest: Manifest = {
 };
 
 export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[]) {
-  const routers = new Cache<ReturnType<typeof getRouter> | undefined>(512);
+  const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
   app.disable("x-powered-by");
   app.use((_req, res, next) => { res.set("Referrer-Policy", "no-referrer"); next(); });
@@ -51,7 +51,6 @@ export function createApp(installations: Installations, createService: (key: str
         return;
       }
       const installation = await installations.save(key, id);
-      routers.delete(installation);
       res.json({ installation, manifestPath: `/${installation}/manifest.json` });
     } catch (error) { next(error); }
   });
@@ -59,8 +58,9 @@ export function createApp(installations: Installations, createService: (key: str
   app.get("/api/installations/:installation", async (req, res, next) => {
     try {
       const id = req.params.installation;
-      if (!await installations.get(id)) { res.status(404).json({ error: "Installation not found" }); return; }
-      res.json({ installation: id, manifestPath: `/${id}/manifest.json`, settings: await installations.settings(id),
+      const installation = await installations.get(id);
+      if (!installation) { res.status(404).json({ error: "Installation not found" }); return; }
+      res.json({ installation: id, manifestPath: `/${id}/manifest.json`, settings: installation.settings,
         providers: SOURCES.map(source => ({ id: source.id, name: source.name })) });
     } catch (error) { next(error); }
   });
@@ -72,7 +72,6 @@ export function createApp(installations: Installations, createService: (key: str
       const settings = parseSettings(req.body);
       if (!settings) { res.status(400).json({ error: "Select at least one valid source and a lookup time from 1 to 10 seconds" }); return; }
       await installations.saveSettings(id, settings);
-      routers.delete(id);
       res.json({ settings });
     } catch (error) { next(error); }
   });
@@ -89,16 +88,15 @@ export function createApp(installations: Installations, createService: (key: str
     const id = req.params.installation;
     if (!installationId.test(id)) { next(); return; }
     try {
-      const router = await routers.get(id, 6 * 60 * 60_000, async () => {
-        const key = await installations.get(id);
-        if (!key) return;
-        const service = createService(key, await installations.settings(id));
+      const installation = await installations.get(id);
+      if (!installation) { next(); return; }
+      const router = await routers.get(`${id}:${installation.revision}`, 6 * 60 * 60_000, async () => {
+        const service = createService(installation.apiKey, installation.settings);
         const builder = new addonBuilder(manifest);
         builder.defineStreamHandler(async args => ({ streams: await service.streams(args.type, args.id), cacheMaxAge: 30 }));
         return getRouter(builder.getInterface());
       });
-      if (router) router(req, res, next);
-      else next();
+      router(req, res, next);
     } catch (error) { next(error); }
   });
   app.use((_req, res) => res.status(404).json({ error: "Not found. Configure Mist at /configure." }));

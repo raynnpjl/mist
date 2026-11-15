@@ -4,7 +4,6 @@ import { createProviders, loadSources } from "./providers.js";
 import { AddonService } from "./service.js";
 import { MetadataResolver } from "./metadata.js";
 import { Installations } from "./installations.js";
-import { resolve } from "node:path";
 import { MediaInspector, probeMedia } from "./media.js";
 
 const port = Number(process.env.PORT || 7000);
@@ -12,7 +11,7 @@ const timeout = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be between 1 and 65535");
 if (!Number.isInteger(timeout) || timeout < 100 || timeout > 30000) throw new Error("UPSTREAM_TIMEOUT_MS must be between 100 and 30000");
 async function main() {
-  const installations = await Installations.open(resolve("data"));
+  const installations = await Installations.open();
   const providers = createProviders(loadSources(), fetch, timeout);
   const server = createApp(installations, (key, settings) => new AddonService(
     providers.filter(provider => settings.sources.includes(provider.source.id)), new MetadataResolver(fetch, key, timeout), fetch,

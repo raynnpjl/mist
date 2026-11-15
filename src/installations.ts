@@ -1,45 +1,56 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { readLimited } from "./cache.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
 export const installationId = /^[a-f0-9]{48}$/;
+export interface Installation { apiKey: string; settings: Settings; revision: string }
 
 export class Installations {
-  private constructor(private directory: string, private key: Buffer) {}
+  private constructor(private url: string, private token: string, private key: Buffer, private fetcher: typeof fetch) {}
 
-  static async open(directory: string): Promise<Installations> {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o700);
-    const path = join(directory, "master.key");
-    let key: Buffer;
-    try { key = await readFile(path); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      if ((await readdir(directory)).some(name => name.endsWith(".json"))) {
-        throw new Error("Installation encryption key is missing. Restore data/master.key from backup.");
-      }
-      key = randomBytes(32);
-      await writeFile(path, key, { mode: 0o600, flag: "wx" });
+  static async open(env: NodeJS.ProcessEnv = process.env, fetcher: typeof fetch = fetch): Promise<Installations> {
+    const values = ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "MIST_ENCRYPTION_KEY"].map(name => {
+      const value = env[name]?.trim();
+      if (!value) throw new Error(`Missing ${name}. Set it in .env or the server environment.`);
+      return value;
+    });
+    const [url, token, key] = values;
+    let endpoint: URL;
+    try { endpoint = new URL(url); }
+    catch { throw new Error("UPSTASH_REDIS_REST_URL must be a valid HTTPS URL"); }
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.hash || endpoint.search || endpoint.pathname !== "/") {
+      throw new Error("UPSTASH_REDIS_REST_URL must be a valid HTTPS database URL");
     }
-    if (key.length !== 32) throw new Error("Invalid installation encryption key");
-    await chmod(path, 0o600);
-    return new Installations(directory, key);
+    if (!/^[a-f0-9]{64}$/i.test(key)) throw new Error("MIST_ENCRYPTION_KEY must contain 64 hexadecimal characters (32 bytes)");
+    return new Installations(url, token, Buffer.from(key, "hex"), fetcher);
   }
 
-  async get(id: string): Promise<string | undefined> {
+  private async request(command: string[]): Promise<unknown> {
+    const response = await this.fetcher(this.url, { method: "POST", headers: {
+      Authorization: `Bearer ${this.token}`, "Content-Type": "application/json"
+    }, body: JSON.stringify(command), signal: AbortSignal.timeout(8000) });
+    if (!response.ok) { await response.body?.cancel(); throw new Error(`Redis storage HTTP ${response.status}`); }
+    const data = JSON.parse(await readLimited(response, 16 * 1024));
+    if (!data || data.error || !("result" in data)) throw new Error("Redis storage command failed");
+    return data.result;
+  }
+
+  async get(id: string): Promise<Installation | undefined> {
     if (!installationId.test(id)) return;
-    let raw: string;
-    try { raw = await readFile(join(this.directory, `${id}.json`), "utf8"); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
+    const record = await this.request(["HMGET", `mist:installation:${id}`, "credential", "preferences"]);
+    if (!Array.isArray(record) || record.length !== 2 || !record.every(field => field === null || typeof field === "string")) {
+      throw new Error("Invalid Redis installation response");
     }
-    const data = JSON.parse(raw);
+    const [credential, preferences] = record as (string | null)[];
+    if (credential === null) return;
+    const data = JSON.parse(credential);
     const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(data.iv, "hex"), { authTagLength: 16 });
     decipher.setAAD(Buffer.from(id));
     decipher.setAuthTag(Buffer.from(data.tag, "hex"));
-    return Buffer.concat([decipher.update(Buffer.from(data.ciphertext, "hex")), decipher.final()]).toString("utf8");
+    const apiKey = Buffer.concat([decipher.update(Buffer.from(data.ciphertext, "hex")), decipher.final()]).toString("utf8");
+    const settings = preferences === null ? defaultSettings() : parseSettings(JSON.parse(preferences));
+    if (!settings) throw new Error("Invalid installation preferences");
+    return { apiKey, settings, revision: createHash("sha256").update(JSON.stringify(record)).digest("hex") };
   }
 
   async save(apiKey: string, id = randomBytes(24).toString("hex")): Promise<string> {
@@ -49,31 +60,12 @@ export class Installations {
     cipher.setAAD(Buffer.from(id));
     const ciphertext = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
     const data = JSON.stringify({ iv: iv.toString("hex"), tag: cipher.getAuthTag().toString("hex"), ciphertext: ciphertext.toString("hex") });
-    const path = join(this.directory, `${id}.json`);
-    const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    await writeFile(temp, data, { mode: 0o600, flag: "wx" });
-    await rename(temp, path);
+    await this.request(["HSET", `mist:installation:${id}`, "credential", data]);
     return id;
-  }
-
-  async settings(id: string): Promise<Settings> {
-    if (!installationId.test(id)) throw new Error("Invalid installation ID");
-    let raw: string;
-    try { raw = await readFile(join(this.directory, `${id}.preferences.json`), "utf8"); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaultSettings();
-      throw error;
-    }
-    const settings = parseSettings(JSON.parse(raw));
-    if (!settings) throw new Error("Invalid installation preferences");
-    return settings;
   }
 
   async saveSettings(id: string, settings: Settings): Promise<void> {
     if (!installationId.test(id) || !parseSettings(settings)) throw new Error("Invalid installation preferences");
-    const path = join(this.directory, `${id}.preferences.json`);
-    const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    await writeFile(temp, JSON.stringify(settings), { mode: 0o600, flag: "wx" });
-    await rename(temp, path);
+    await this.request(["HSET", `mist:installation:${id}`, "preferences", JSON.stringify(settings)]);
   }
 }

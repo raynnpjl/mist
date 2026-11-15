@@ -2,8 +2,6 @@ export class Cache<T> {
   private entries = new Map<string, { expires: number; pending: Promise<T> }>();
   constructor(private limit: number) {}
 
-  delete(key: string): void { this.entries.delete(key); }
-
   get(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
     const existing = this.entries.get(key);
     if (existing && existing.expires > Date.now()) return existing.pending;

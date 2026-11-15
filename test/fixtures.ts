@@ -2,8 +2,36 @@ import { Pool } from "../src/cache.js";
 import { Fetcher, Provider, SOURCES } from "../src/providers.js";
 import { Vod } from "../src/model.js";
 import { MediaInspector, MediaProbe } from "../src/media.js";
+import { Installations } from "../src/installations.js";
 
 export const TEST_SOURCES = SOURCES.map(source => ({ ...source, url: `https://${source.id}.example/api.php/provide/vod` }));
+
+export function installationFixture() {
+  const env = { UPSTASH_REDIS_REST_URL: "https://redis.example", UPSTASH_REDIS_REST_TOKEN: "fixture-token",
+    MIST_ENCRYPTION_KEY: "01".repeat(32) };
+  const records = new Map<string, Map<string, string>>();
+  const fetcher: Fetcher = async (input, options) => {
+    const headers = new Headers(options?.headers);
+    if (String(input) !== env.UPSTASH_REDIS_REST_URL || options?.method !== "POST" ||
+      headers.get("Authorization") !== `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}` || headers.get("Content-Type") !== "application/json") {
+      throw new Error("Invalid Redis REST request");
+    }
+    const [command, key, ...args] = JSON.parse(String(options.body)) as string[];
+    if (command === "HMGET") return Response.json({ result: args.map(field => records.get(key)?.get(field) ?? null) });
+    if (command === "HSET") {
+      const fields = records.get(key) || new Map<string, string>();
+      let added = 0;
+      for (let i = 0; i < args.length; i += 2) {
+        if (!fields.has(args[i])) added++;
+        fields.set(args[i], args[i + 1]);
+      }
+      records.set(key, fields);
+      return Response.json({ result: added });
+    }
+    throw new Error(`Unexpected Redis command: ${command}`);
+  };
+  return { env, records, fetcher, open: () => Installations.open(env, fetcher) };
+}
 
 export function drama(id = 1, overrides: Vod = {}): Vod {
   return { vod_id: id, vod_name: `测试剧${id}`, type_id: 13, type_name: "国产剧", vod_area: "中国大陆",
