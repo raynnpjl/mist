@@ -7,17 +7,26 @@ import { Provider, SOURCES } from "./providers.js";
 import { AddonService } from "./service.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
-export const manifest: Manifest = {
+export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
   id: "org.mist.chinese", version: "1.0.1", name: "Mist",
   description: "HTTP Addon for chinese content\nProviders: 红牛, 天堂, 暴风, 量子, 优酷",
+  stremioAddonsConfig: {
+    issuer: "https://stremio-addons.net",
+    signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..DR7JuNucW3enoPVljnZzog.En6KpQ_KuEr3RJnxcdTaGzjHLATNm5GGnlqDNQwH5shzRQbxO-HDwkHntvXKW07vowSEL9jjSczmZ_cFMh7-oPuLreMtb2gPFY2gvxPxmP4jocVaz6f0VF2_LEfE_w-R.g0ERoiqMTnqK-txFWOZNsg"
+  },
   types: ["movie", "series"],
   resources: [{ name: "stream", types: ["movie", "series"], idPrefixes: ["tt", "tmdb:"] }],
   catalogs: [], behaviorHints: { configurable: true }
 };
 
+function manifestFor(req: express.Request): Manifest {
+  return { ...manifest, logo: `${req.protocol}://${req.get("host")}/assets/icon.png` };
+}
+
 export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[]) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
+  app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use((_req, res, next) => { res.set("Referrer-Policy", "no-referrer"); next(); });
   app.use("/assets", express.static(resolve(__dirname, "../public"), { index: false }));
@@ -25,7 +34,7 @@ export function createApp(installations: Installations, createService: (key: str
     .sendFile(resolve(__dirname, "../public/index.html")));
   app.get("/health", (_req, res) => res.set("Cache-Control", "no-store").json({ status: "ok",
     providers: providers.map(p => p.status()) }));
-  app.get("/manifest.json", (_req, res) => res.set("Access-Control-Allow-Origin", "*").json({ ...manifest,
+  app.get("/manifest.json", (req, res) => res.set("Access-Control-Allow-Origin", "*").json({ ...manifestFor(req),
     resources: [], behaviorHints: { configurable: true, configurationRequired: true } }));
 
   app.use("/api", express.json({ limit: "2kb" }), (req, res, next) => {
@@ -90,9 +99,10 @@ export function createApp(installations: Installations, createService: (key: str
     try {
       const installation = await installations.get(id);
       if (!installation) { next(); return; }
-      const router = await routers.get(`${id}:${installation.revision}`, 6 * 60 * 60_000, async () => {
+      const installedManifest = manifestFor(req);
+      const router = await routers.get(`${id}:${installation.revision}:${installedManifest.logo}`, 6 * 60 * 60_000, async () => {
         const service = createService(installation.apiKey, installation.settings);
-        const builder = new addonBuilder(manifest);
+        const builder = new addonBuilder(installedManifest);
         builder.defineStreamHandler(async args => ({ streams: await service.streams(args.type, args.id), cacheMaxAge: 30 }));
         return getRouter(builder.getInterface());
       });
