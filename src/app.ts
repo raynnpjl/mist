@@ -1,16 +1,15 @@
 import express from "express";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { addonBuilder, getRouter, Manifest } from "stremio-addon-sdk";
 import { Cache } from "./cache.js";
 import { installationId, Installations } from "./installations.js";
 import { Provider, SOURCES } from "./providers.js";
 import { AddonService } from "./service.js";
-import { liangziEpisode18 } from "./playlist-repair.js";
+import { HlsPlaylists } from "./hls.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.1.1", name: "Mist",
+  id: "org.mist.chinese", version: "1.2.0", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
@@ -25,7 +24,7 @@ function manifestFor(req: express.Request): Manifest {
   return { ...manifest, logo: `${req.protocol}://${req.get("host")}/assets/icon.png` };
 }
 
-export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[]) {
+export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[], playlists: HlsPlaylists) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
   app.set("trust proxy", 1);
@@ -95,14 +94,20 @@ export function createApp(installations: Installations, createService: (key: str
     } catch (error) { next(error); }
   });
 
-  app.get(`/:installation${liangziEpisode18.route}`, async (req, res, next) => {
+  app.get("/:installation/hls/:token.m3u8", async (req, res, next) => {
     try {
-      if (!await installations.get(req.params.installation)) { next(); return; }
-      const media = new URL(liangziEpisode18.mediaPath, liangziEpisode18.source);
-      const body = (await readFile(liangziEpisode18.file, "utf8")).split(/\r?\n/)
-        .map(line => line && !line.startsWith("#") ? new URL(line, media).href : line).join("\n");
-      res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "private, no-store" })
-        .type("application/vnd.apple.mpegurl").send(body);
+      const id = req.params.installation;
+      if (!await installations.get(id)) { next(); return; }
+      const source = playlists.source(req.params.token, id);
+      if (!source) { res.status(400).json({ error: "Invalid playlist link" }); return; }
+      res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "private, no-store" });
+      try {
+        const body = await playlists.read(source, id, `${req.protocol}://${req.get("host")}`);
+        res.type("application/vnd.apple.mpegurl").send(body);
+      } catch {
+        // A CDN can reject server requests while still allowing native players.
+        res.redirect(307, source);
+      }
     } catch (error) { next(error); }
   });
 
@@ -117,8 +122,8 @@ export function createApp(installations: Installations, createService: (key: str
         const service = createService(installation.apiKey, installation.settings);
         const builder = new addonBuilder(installedManifest);
         builder.defineStreamHandler(async args => ({ streams: (await service.streams(args.type, args.id)).map(stream =>
-          stream.behaviorHints.bingeGroup.startsWith("mist:liangzi:") && stream.url === liangziEpisode18.source
-            ? { ...stream, url: `${new URL(installedManifest.logo!).origin}/${id}${liangziEpisode18.route}` } : stream), cacheMaxAge: 30 }));
+          /\.m3u8$/i.test(new URL(stream.url).pathname)
+            ? { ...stream, url: playlists.url(stream.url, id, new URL(installedManifest.logo!).origin) } : stream), cacheMaxAge: 30 }));
         return getRouter(builder.getInterface());
       });
       router(req, res, next);

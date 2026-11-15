@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Cache, Pool, readLimited } from "./cache.js";
+import { Cache, Pool, readBytes, readLimited } from "./cache.js";
 import { webUrl } from "./model.js";
 import { Fetcher, UPSTREAM_HEADERS } from "./providers.js";
 
@@ -14,8 +14,28 @@ export interface MediaInfo {
   channelLayout?: string;
 }
 export type MediaProbe = (url: string, timeoutMs: number) => Promise<Partial<MediaInfo>>;
+export interface SegmentClock { start: number; end: number }
+export type SegmentProbe = (url: string, timeoutMs: number) => Promise<SegmentClock>;
 const run = promisify(execFile);
 const SAMPLE_BYTES = 1024;
+
+export const probeSegmentClock: SegmentProbe = async (url, timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  const response = await fetch(url, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] }, signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`Segment HTTP ${response.status}`); }
+  const bytes = await readBytes(response, 4 * 1024 * 1024);
+  const pending = run("ffprobe", ["-v", "error", "-protocol_whitelist", "pipe", "-select_streams", "v:0",
+    "-show_entries", "packet=dts_time,duration_time", "-of", "json", "pipe:0"],
+  { timeout: Math.max(1, deadline - Date.now()), killSignal: "SIGKILL", maxBuffer: 256 * 1024, windowsHide: true });
+  pending.child.stdin?.on("error", () => { /* The process result reports failed probes. */ });
+  pending.child.stdin?.end(bytes);
+  const { stdout } = await pending;
+  const packets = JSON.parse(stdout).packets;
+  const start = Number(packets?.[0]?.dts_time), last = Number(packets?.at(-1)?.dts_time);
+  const duration = Number(packets?.at(-1)?.duration_time), end = last + duration;
+  if (![start, last, duration].every(Number.isFinite) || duration <= 0 || end <= start) throw new Error("Invalid segment clock");
+  return { start, end };
+};
 
 function positive(input: unknown): number | undefined {
   const n = Number(input);

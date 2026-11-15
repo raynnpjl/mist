@@ -34,6 +34,10 @@ export class Pool {
 }
 
 export async function readLimited(response: Response, limit: number): Promise<string> {
+  return (await readBytes(response, limit)).toString("utf8");
+}
+
+export async function readBytes(response: Response, limit: number): Promise<Buffer> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Empty response");
   const chunks: Uint8Array[] = [];
@@ -46,6 +50,6 @@ export async function readLimited(response: Response, limit: number): Promise<st
       if (size > limit) throw new Error("Response exceeded size limit");
       chunks.push(value);
     }
-    return Buffer.concat(chunks).toString("utf8");
+    return Buffer.concat(chunks);
   } finally { await reader.cancel(); }
 }
