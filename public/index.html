@@ -70,16 +70,16 @@
       <section class="view" id="view-overview" aria-labelledby="overview-title">
         <div class="page-heading"><span class="eyebrow">OVERVIEW</span><h1 id="overview-title">Welcome to Mist</h1><p>An exclusive HTTP addon made for chinese content</p></div>
         <div class="summary-grid">
-          <button class="summary-card" data-go="sources"><span class="summary-label"><svg class="icon"><use href="#i-layers"/></svg>Selected sources</span><strong id="summary-sources">5 <small>/ 5</small></strong><span class="caption">Only the ones you choose.</span></button>
-          <button class="summary-card" data-go="preferences"><span class="summary-label"><svg class="icon"><use href="#i-clock"/></svg>Detail lookup</span><strong id="summary-lookup">6.5 <small>seconds</small></strong><span class="caption">Your balance of speed and detail.</span></button>
-          <button class="summary-card" id="summary-key"><span class="summary-label"><svg class="icon"><use href="#i-lock"/></svg>TMDB API key</span><strong class="summary-word">Encrypted</strong><span class="caption">Stored securely on the server.</span></button>
+          <button class="summary-card" data-go="sources"><span class="summary-label"><svg class="icon"><use href="#i-layers"/></svg>Selected sources</span><strong id="summary-sources">5 <small>/ 5</small></strong><span class="caption">Only the ones you choose</span></button>
+          <button class="summary-card" data-go="preferences"><span class="summary-label"><svg class="icon"><use href="#i-clock"/></svg>Detail lookup</span><strong id="summary-lookup">6.5 <small>seconds</small></strong><span class="caption">Your balance of speed and detail</span></button>
+          <button class="summary-card" id="summary-key"><span class="summary-label"><svg class="icon"><use href="#i-lock"/></svg>TMDB API key</span><strong class="summary-word">Encrypted</strong><span class="caption">Stored securely on the server</span></button>
         </div>
         <section class="card install-card" aria-labelledby="install-title">
-          <div class="section-heading"><div><h2 id="install-title">Take Mist to your player.</h2><p>Install once</p></div><svg class="icon section-icon"><use href="#i-external"/></svg></div>
+          <div class="section-heading"><div><h2 id="install-title">Take Mist to your player</h2><p>Install once</p></div><svg class="icon section-icon"><use href="#i-external"/></svg></div>
           <label class="field-label" for="manifest">Your private installation URL</label>
           <div class="copy-field"><input id="manifest" readonly spellcheck="false" aria-label="Private addon manifest URL"><button class="icon-button" id="copy" aria-label="Copy installation URL"><svg class="icon"><use href="#i-copy"/></svg></button></div>
           <div class="install-actions"><a class="button primary" id="stremio">Install in Stremio <svg class="icon"><use href="#i-external"/></svg></a><button class="button secondary" id="copy-nuvio">Copy Manifest URL</button></div>
-          <p class="fine-print">Keep this link private. For Nuvio, paste it into the addon manager.</p>
+          <p class="fine-print">Keep this link private. For Nuvio, paste it into the addon manager</p>
         </section>
       </section>
 
@@ -93,7 +93,7 @@
       <section class="view" id="view-preferences" aria-labelledby="preferences-title" hidden>
         <div class="page-heading"><span class="eyebrow">PREFERENCES</span><h1 id="preferences-title">Settle into your setup</h1><p>Set how you want Mist to perform</p></div>
         <section class="card lookup-card" aria-labelledby="lookup-title">
-          <div class="section-heading"><div><h2 id="lookup-title">Detail lookup time</h2><p>How long Mist checks each stream for quality, bitrate and codec details.</p></div><svg class="icon section-icon"><use href="#i-clock"/></svg></div>
+          <div class="section-heading"><div><h2 id="lookup-title">Detail lookup time</h2><p>How long Mist checks each stream for quality, bitrate and codec details</p></div><svg class="icon section-icon"><use href="#i-clock"/></svg></div>
           <div class="range-value"><label for="lookup-time">Inspection window</label><output id="lookup-output" for="lookup-time">6.5 <span>seconds</span></output></div>
           <input id="lookup-time" type="range" min="1000" max="10000" step="500" value="6500" aria-label="Detail lookup time">
           <div class="range-labels"><span>1 second · Faster</span><span>10 seconds · More detail</span></div>
@@ -101,19 +101,19 @@
           <div class="info-note lookup-note"><svg class="icon"><use href="#i-info"/></svg><p id="lookup-help">A shorter lookup can load the list faster, but more sources may show Unknown quality, bitrate or codec information.</p></div>
           <p class="fine-print">This window covers stream details. Finding titles and contacting sources can add time.</p>
         </section>
-        <section class="card settings-card"><div><h2>Appearance</h2><p>Choose a lighter view or a little less light.</p></div><div class="segmented" aria-label="Appearance"><button data-theme="light"><svg class="icon"><use href="#i-sun"/></svg>Light</button><button data-theme="dark"><svg class="icon"><use href="#i-moon"/></svg>Dark</button></div></section>
-        <section class="card settings-card"><div><h2>TMDB connection</h2><p>Your API key is encrypted and saved on the server.</p></div><button class="button secondary" id="change-key">Update API key</button></section>
+        <section class="card settings-card"><div><h2>Appearance</h2><p>Light and dark mode</p></div><div class="segmented" aria-label="Appearance"><button data-theme="light"><svg class="icon"><use href="#i-sun"/></svg>Light</button><button data-theme="dark"><svg class="icon"><use href="#i-moon"/></svg>Dark</button></div></section>
+        <section class="card settings-card"><div><h2>TMDB connection</h2><p>Your API key is encrypted and saved on the server</p></div><button class="button secondary" id="change-key">Update API key</button></section>
       </section>
 
       <section class="view" id="view-status" aria-labelledby="status-title" hidden>
-        <div class="page-heading heading-with-action"><div><span class="eyebrow">STATUS</span><h1 id="status-title">A look at the connections.</h1><p>Status of every source, including those you haven’t selected.</p></div><button class="button secondary" id="refresh-status"><svg class="icon"><use href="#i-refresh"/></svg>Refresh status</button></div>
+        <div class="page-heading heading-with-action"><div><span class="eyebrow">STATUS</span><h1 id="status-title">A look at the connections</h1><p>Status of every source, including those you haven’t selected</p></div><button class="button secondary" id="refresh-status"><svg class="icon"><use href="#i-refresh"/></svg>Refresh status</button></div>
         <div class="summary-grid" aria-label="Source status summary" aria-live="polite">
           <div class="summary-card"><span class="summary-label">Total sources</span><strong id="status-total">5</strong></div>
           <div class="summary-card"><span class="summary-label">Up</span><strong class="status-up" id="status-up">—</strong></div>
           <div class="summary-card"><span class="summary-label">Down</span><strong class="status-down" id="status-down">—</strong></div>
         </div>
         <section class="card status-card" aria-label="Source status"><div class="status-columns"><span>Source</span><span>Status</span><span>Response</span><span>Last checked</span></div><div id="source-status"></div></section>
-        <p class="fine-print status-footnote">An available source API can still have unavailable videos.</p>
+        <p class="fine-print status-footnote">An available source API can still have unavailable videos</p>
         <p class="form-error" id="status-error" role="alert" hidden></p>
       </section>
 
