@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
-import { HlsPlaylists } from "../src/hls.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { AddonService } from "../src/service.js";
 import { drama, fixtures, installationFixture } from "./fixtures.js";
@@ -25,8 +24,8 @@ test("website validates and encrypts keys, serves private addon routes, and upda
     return new AddonService(fixture.providers, new MetadataResolver(fetcher, key), fetcher, fixture.inspector);
   };
   const replicaStore = await redis.open();
-  const server = createApp(store, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
-  const replica = createApp(replicaStore, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
+  const server = createApp(store, factory, fixture.providers).listen(0, "127.0.0.1");
+  const replica = createApp(replicaStore, factory, fixture.providers).listen(0, "127.0.0.1");
   t.after(async () => {
     await Promise.all([server, replica].map(instance => new Promise<void>((resolve, reject) => instance.close(error => error ? reject(error) : resolve()))));
   });

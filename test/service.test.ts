@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createApp, manifest } from "../src/app.js";
-import { HlsPlaylists } from "../src/hls.js";
 import { MetadataResolver, parseVideo } from "../src/metadata.js";
 import { AddonService } from "../src/service.js";
 import { Provider } from "../src/providers.js";
 import { Pool } from "../src/cache.js";
 import { MediaInspector } from "../src/media.js";
+import { liangziEpisode18 } from "../src/playlist-repair.js";
 import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
 test("Mist is stream-only and eligible for IMDb and TMDB episodes from existing catalogs", () => {
@@ -142,7 +142,7 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
   const installations = await installationFixture().open();
   const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fixture.fetcher)).listen(0, "127.0.0.1");
+  const server = createApp(installations, () => service, fixture.providers).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -171,41 +171,70 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   }
 });
 
-test("量子 streams use a private playlist relay while other providers stay direct", async () => {
+test("量子 playback URLs stay direct when its CDN rejects server-side playlist fetches", async () => {
   const fixture = fixtures([drama()], 4);
-  const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
+  let blocked = 0;
+  const fetcher: typeof fetch = async (input, options) => {
+    const url = new URL(String(input));
+    if (url.hostname === "liangzi.example" && url.pathname.endsWith(".m3u8")) {
+      blocked++;
+      return new Response("CDN rejects the server", { status: 403 });
+    }
+    return fixture.fetcher(input, options);
+  };
+  const inspector = new MediaInspector(fetcher, async url => new URL(url).hostname === "liangzi.example" ? {} : fixture.probe(url, 6500));
+  const service = new AddonService(fixture.providers, new MetadataResolver(fetcher, "fixture-key"), fetcher, inspector);
   const installations = await installationFixture().open();
   const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const playlistFetcher: typeof fetch = async input => {
-    const path = new URL(String(input)).pathname;
-    if (path.endsWith("offline.m3u8")) return new Response("offline", { status: 503 });
-    return new Response(path.endsWith("variant.m3u8")
-      ? "#EXTM3U\n#EXTINF:6.6,\nbefore.ts\n# ppvod-ad-injected v1\n#EXT-X-DISCONTINUITY\n#EXTINF:4,\nad.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:4,\nafter.ts\n#EXT-X-ENDLIST\n"
-      : "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nvariant.m3u8\n");
-  };
-  const playlists = new HlsPlaylists("01".repeat(32), playlistFetcher);
-  const server = createApp(installations, () => service, fixture.providers, playlists).listen(0, "127.0.0.1");
+  const server = createApp(installations, () => service, fixture.providers).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
     const { streams } = await (await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`)).json();
     const liangzi = streams.find((stream: any) => stream.behaviorHints.bingeGroup.startsWith("mist:liangzi:"));
-    assert.ok(liangzi.url.startsWith(`${base}/${id}/hls/`), "量子 must use the repaired playlist endpoint");
-    assert.ok(streams.filter((stream: any) => stream !== liangzi).every((stream: any) => !stream.url.startsWith(base)));
-    const response = await fetch(liangzi.url);
+    assert.equal(streams.length, 4);
+    assert.equal(liangzi.url, "https://liangzi.example/1/1.m3u8", "Playback must not depend on Mist fetching the CDN playlist");
+    assert.equal(liangzi.name, "Unknown");
+    assert.ok(blocked > 0, "The test must exercise a failed server-side inspection");
+    assert.ok(streams.every((stream: any) => !stream.url.startsWith(base)));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test("the verified 量子 S01E18 repair serves a local playlist with direct CDN segments", async () => {
+  const fixture = fixtures([drama()]);
+  const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
+  service.streams = async () => [
+    { provider: "liangzi", url: liangziEpisode18.source },
+    { provider: "liangzi", url: "https://liangzi.example/another-episode/index.m3u8" },
+    { provider: "hongniu", url: liangziEpisode18.source }
+  ].map(({ provider, url }) => ({ name: "1080P", description: "今天是太阳雨 S01E18", url,
+    behaviorHints: { notWebReady: true, bingeGroup: `mist:${provider}:m3u8`, filename: "episode.m3u8" } }));
+  const installations = await installationFixture().open();
+  const id = await installations.save("0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const { streams } = await (await fetch(`${base}/${id}/stream/series/tt36982492:1:18.json`)).json();
+    assert.ok(streams[0].url === `${base}/${id}${liangziEpisode18.route}`, "The verified source must use the bundled repair");
+    assert.equal(streams[1].url, "https://liangzi.example/another-episode/index.m3u8");
+    assert.equal(streams[2].url, liangziEpisode18.source);
+    const response = await fetch(streams[0].url);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("access-control-allow-origin"), "*");
-    assert.equal(response.headers.get("cache-control"), "private, no-store");
     assert.match(response.headers.get("content-type")!, /application\/vnd.apple.mpegurl/);
-    const child = (await response.text()).split("\n").find(line => line && !line.startsWith("#"))!;
-    assert.ok(child.startsWith(`${base}/${id}/hls/`));
-    const media = await (await fetch(child)).text();
-    assert.ok(!/ppvod|ad\.ts|DISCONTINUITY/.test(media));
-    assert.ok(media.includes("https://liangzi.example/1/before.ts"));
-    assert.ok(media.includes("https://liangzi.example/1/after.ts"));
-    assert.equal((await fetch(`${base}/${id}/hls/invalid.m3u8`)).status, 400);
-    assert.equal((await fetch(`${base}/${"a".repeat(48)}/hls/invalid.m3u8`)).status, 404);
-    assert.equal((await fetch(playlists.url("https://liangzi.example/offline.m3u8", id, base))).status, 502);
+    const playlist = await response.text();
+    const segments = playlist.split("\n").filter(line => line && !line.startsWith("#"));
+    assert.equal(segments.length, 683);
+    const mediaBase = new URL(".", new URL(liangziEpisode18.mediaPath, liangziEpisode18.source)).href;
+    assert.ok(segments.every(url => url.startsWith(mediaBase) && !url.startsWith(base)));
+    assert.ok(!/ppvod|DISCONTINUITY|751808405d7/.test(playlist));
+    const duration = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].reduce((sum, match) => sum + Number(match[1]), 0);
+    assert.equal(duration.toFixed(2), "2730.64");
+    assert.match(playlist, /#EXT-X-ENDLIST\n$/);
+    assert.equal((await fetch(`${base}/${"a".repeat(48)}${liangziEpisode18.route}`)).status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
