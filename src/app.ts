@@ -8,7 +8,7 @@ import { AddonService } from "./service.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
 export const manifest: Manifest = {
-  id: "org.mist.chinese", version: "1.0.0", name: "Mist",
+  id: "org.mist.chinese", version: "1.0.1", name: "Mist",
   description: "HTTP Addon for chinese content\nProviders: 红牛, 天堂, 暴风, 量子, 优酷",
   types: ["movie", "series"],
   resources: [{ name: "stream", types: ["movie", "series"], idPrefixes: ["tt", "tmdb:"] }],
