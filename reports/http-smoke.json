@@ -1,0 +1,189 @@
+{
+  "checkedAt": "2026-11-14T19:43:22.610505+00:00",
+  "catalogs": [
+    {
+      "catalog": "chinese-dramas",
+      "firstPage": 100,
+      "secondPage": 100,
+      "overlap": 0
+    },
+    {
+      "catalog": "chinese-movies",
+      "firstPage": 100,
+      "secondPage": 100,
+      "overlap": 0
+    },
+    {
+      "catalog": "chinese-variety",
+      "firstPage": 100,
+      "secondPage": 100,
+      "overlap": 0
+    }
+  ],
+  "items": [
+    {
+      "title": "狂飙",
+      "type": "series",
+      "id": "cnvod:c4b35fcd-d958-4748-8b57-b235611f99df",
+      "episodes": 39,
+      "videoId": "cnvod:c4b35fcd-d958-4748-8b57-b235611f99df:1:1",
+      "sourceNames": [
+        "量子云播",
+        "天堂云播",
+        "暴风云播",
+        "红牛云播",
+        "优酷云播"
+      ],
+      "firstStream": "https://v.cdnlz29.com/20251024/2700_ed34a79a/index.m3u8",
+      "decodedStreams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1080,
+          "height": 606
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ]
+    },
+    {
+      "title": "白夜最长时",
+      "type": "movie",
+      "id": "cnvod:d7d81399-14b5-4d40-8b17-a572cbfeb4e3",
+      "episodes": 0,
+      "videoId": "cnvod:d7d81399-14b5-4d40-8b17-a572cbfeb4e3",
+      "sourceNames": [
+        "量子云播",
+        "优酷云播",
+        "暴风云播",
+        "红牛云播"
+      ],
+      "firstStream": "https://vip.lz-cdn3.com/20230704/20016_9ee70432/index.m3u8",
+      "decodedStreams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1280,
+          "height": 588
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ]
+    },
+    {
+      "title": "追星星的人第三季",
+      "type": "series",
+      "id": "cnvod:56c0bf51-6642-41af-85c6-1973c6a14129",
+      "episodes": 10,
+      "videoId": "cnvod:56c0bf51-6642-41af-85c6-1973c6a14129:1:1",
+      "sourceNames": [
+        "暴风云播"
+      ],
+      "firstStream": "https://c1.rrcdnbf4.com/video/zhuixingxingderendisanji/%E7%AC%AC20230311%E6%9C%9F/index.m3u8",
+      "decodedStreams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 3840,
+          "height": 2160
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ]
+    }
+  ],
+  "search": {
+    "query": "狂飙",
+    "results": 7,
+    "exactMatch": "cnvod:c4b35fcd-d958-4748-8b57-b235611f99df"
+  },
+  "container": {
+    "title": "狂飙",
+    "id": "cnvod:74c23132-7398-426a-aedd-5024ed6a8183",
+    "videoId": "cnvod:74c23132-7398-426a-aedd-5024ed6a8183:1:1",
+    "episodes": 39,
+    "restartPersistence": true,
+    "customPort": 7100,
+    "finalImagePersistence": true
+  },
+  "defaultPlayerUserAgent": [
+    {
+      "title": "狂飙",
+      "ok": true,
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ],
+      "error": ""
+    },
+    {
+      "title": "白夜最长时",
+      "ok": true,
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ],
+      "error": ""
+    },
+    {
+      "title": "追星星的人第三季",
+      "ok": true,
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ],
+      "error": ""
+    }
+  ],
+  "shortDecode": [
+    {
+      "title": "狂飙",
+      "source": "量子云播",
+      "url": "https://v.cdnlz29.com/20251024/2700_ed34a79a/index.m3u8",
+      "seconds": 2,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "title": "白夜最长时",
+      "source": "量子云播",
+      "url": "https://vip.lz-cdn3.com/20230704/20016_9ee70432/index.m3u8",
+      "seconds": 2,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "title": "追星星的人第三季",
+      "source": "暴风云播",
+      "url": "https://c1.rrcdnbf4.com/video/zhuixingxingderendisanji/%E7%AC%AC20230311%E6%9C%9F/index.m3u8",
+      "seconds": 2,
+      "ok": true,
+      "error": ""
+    }
+  ],
+  "completedAt": "2026-11-14T19:47:59.547568+00:00"
+}

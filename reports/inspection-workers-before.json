@@ -1,0 +1,132 @@
+[
+  {
+    "id": "tmdb:270431:1:1",
+    "totalMs": 7072,
+    "streamCount": 5,
+    "peakProbes": 4,
+    "events": [
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 1254,
+        "completed": true
+      },
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 4331,
+        "completed": true
+      },
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 1071,
+        "completed": true
+      },
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 3849,
+        "completed": true
+      },
+      {
+        "queueMs": 613,
+        "budgetMs": 5889,
+        "probeMs": 5005,
+        "completed": true
+      }
+    ],
+    "details": [
+      {
+        "name": "1080P",
+        "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+        "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+        "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n暴风云播",
+        "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+        "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "536P",
+        "description": "折月亮 S01E01\nBitrate: 2 Mbps\nLanguage: Chinese\n优酷云播",
+        "filename": "折月亮 S01E01 536p 1280x536 H.264 AAC 2.0 Chinese.m3u8"
+      }
+    ]
+  },
+  {
+    "id": "tmdb:224755:1:1",
+    "totalMs": 8081,
+    "streamCount": 5,
+    "peakProbes": 4,
+    "events": [
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 3026,
+        "completed": true
+      },
+      {
+        "queueMs": 0,
+        "budgetMs": 6500,
+        "probeMs": 3191,
+        "completed": true
+      },
+      {
+        "queueMs": 1,
+        "budgetMs": 6500,
+        "probeMs": 3171,
+        "completed": true
+      },
+      {
+        "queueMs": 2,
+        "budgetMs": 6500,
+        "probeMs": 1278,
+        "completed": false
+      },
+      {
+        "queueMs": 1028,
+        "budgetMs": 5473,
+        "probeMs": 5363,
+        "completed": true
+      }
+    ],
+    "details": [
+      {
+        "name": "1080P",
+        "description": "女子推理社 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+        "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+        "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+        "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "1080P",
+        "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+        "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+      },
+      {
+        "name": "Unknown",
+        "description": "女子推理社 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+        "filename": "女子推理社 S01E01 Chinese.m3u8"
+      }
+    ]
+  }
+]

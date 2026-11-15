@@ -1,0 +1,12 @@
+services:
+  mist:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7000:7000"
+    volumes:
+      - mist_data:/app/data
+volumes:
+  mist_data:

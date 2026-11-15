@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>Mist</title>
+  <script>
+    try { document.documentElement.dataset.theme = localStorage.getItem('mist.theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
+    catch { document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  </script>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="i-wind" viewBox="0 0 24 24"><path d="M3 8h12a3 3 0 1 0-3-3M2 12h17a3 3 0 1 1-3 3M4 16h5a2.5 2.5 0 1 1-2.5 2.5"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M5 3v8m0 4v6M12 3v3m0 4v11M19 3v12m0 4v2M2 13h6m1-5h6m1 9h6"/></symbol>
+      <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 13.1A8.5 8.5 0 0 1 10.9 3.5a8.5 8.5 0 1 0 9.6 9.6Z"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7V5Z"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button class="wordmark" id="brand" aria-label="Mist overview"><svg class="icon brand-icon"><use href="#i-wind"/></svg><span>Mist</span></button>
+      <div class="topbar-actions">
+        <span class="connection" id="connection" hidden><span class="status-dot"></span>TMDB connected</span>
+        <button class="icon-button" data-theme-toggle aria-label="Switch to dark mode"><svg class="icon"><use href="#i-moon"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <section class="welcome" id="welcome" aria-label="Welcome to Mist">
+    <svg class="welcome-icon icon"><use href="#i-wind"/></svg>
+    <h1>Mist</h1>
+    <p>An exclusive chinese HTTP addon</p>
+    <span class="caption" id="welcome-status">Connect TMDB to open your workspace.</span>
+    <button class="button secondary" id="retry-workspace" hidden>Try again</button>
+  </section>
+
+  <div class="workspace" id="workspace" hidden>
+    <aside class="sidebar">
+      <span class="sidebar-label">WORKSPACE</span>
+      <nav class="navigation" aria-label="Workspace">
+        <button class="nav-item active" data-view="overview" aria-current="page"><svg class="icon"><use href="#i-grid"/></svg><span>Overview</span></button>
+        <button class="nav-item" data-view="sources"><svg class="icon"><use href="#i-layers"/></svg><span>Sources</span><span class="nav-count" id="nav-source-count">5</span></button>
+        <button class="nav-item" data-view="preferences"><svg class="icon"><use href="#i-sliders"/></svg><span>Preferences</span></button>
+        <button class="nav-item" data-view="status"><svg class="icon"><use href="#i-pulse"/></svg><span>Status</span></button>
+      </nav>
+      <div class="sidebar-bottom"><span>Nuvio · Stremio</span></div>
+    </aside>
+
+    <main class="content" id="main-content">
+      <section class="view" id="view-overview" aria-labelledby="overview-title">
+        <div class="page-heading"><span class="eyebrow">OVERVIEW</span><h1 id="overview-title">Welcome to Mist</h1><p>An exclusive HTTP addon made for chinese content</p></div>
+        <div class="summary-grid">
+          <button class="summary-card" data-go="sources"><span class="summary-label"><svg class="icon"><use href="#i-layers"/></svg>Selected sources</span><strong id="summary-sources">5 <small>/ 5</small></strong><span class="caption">Only the ones you choose.</span></button>
+          <button class="summary-card" data-go="preferences"><span class="summary-label"><svg class="icon"><use href="#i-clock"/></svg>Detail lookup</span><strong id="summary-lookup">6.5 <small>seconds</small></strong><span class="caption">Your balance of speed and detail.</span></button>
+          <button class="summary-card" id="summary-key"><span class="summary-label"><svg class="icon"><use href="#i-lock"/></svg>TMDB API key</span><strong class="summary-word">Encrypted</strong><span class="caption">Stored securely on the server.</span></button>
+        </div>
+        <section class="card install-card" aria-labelledby="install-title">
+          <div class="section-heading"><div><h2 id="install-title">Take Mist to your player.</h2><p>Install once</p></div><svg class="icon section-icon"><use href="#i-external"/></svg></div>
+          <label class="field-label" for="manifest">Your private installation URL</label>
+          <div class="copy-field"><input id="manifest" readonly spellcheck="false" aria-label="Private addon manifest URL"><button class="icon-button" id="copy" aria-label="Copy installation URL"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+          <div class="install-actions"><a class="button primary" id="stremio">Install in Stremio <svg class="icon"><use href="#i-external"/></svg></a><button class="button secondary" id="copy-nuvio">Copy Manifest URL</button></div>
+          <p class="fine-print">Keep this link private. For Nuvio, paste it into the addon manager.</p>
+        </section>
+      </section>
+
+      <section class="view" id="view-sources" aria-labelledby="sources-title" hidden>
+        <div class="page-heading"><span class="eyebrow">SOURCES</span><h1 id="sources-title">Choose where Mist looks</h1><p>Select Providers. Every source starts on</p></div>
+        <div class="section-toolbar"><span id="selection-count" class="caption">5 of 5 selected</span><button class="text-button" id="select-all">Select all</button></div>
+        <div class="source-grid" id="source-grid"></div>
+        <div class="info-note"><svg class="icon"><use href="#i-info"/></svg><p>Every source has its own catalog and playback availability. Keeping a few selected gives you more choice for each title.</p></div>
+      </section>
+
+      <section class="view" id="view-preferences" aria-labelledby="preferences-title" hidden>
+        <div class="page-heading"><span class="eyebrow">PREFERENCES</span><h1 id="preferences-title">Settle into your setup</h1><p>Set how you want Mist to perform</p></div>
+        <section class="card lookup-card" aria-labelledby="lookup-title">
+          <div class="section-heading"><div><h2 id="lookup-title">Detail lookup time</h2><p>How long Mist checks each stream for quality, bitrate and codec details.</p></div><svg class="icon section-icon"><use href="#i-clock"/></svg></div>
+          <div class="range-value"><label for="lookup-time">Inspection window</label><output id="lookup-output" for="lookup-time">6.5 <span>seconds</span></output></div>
+          <input id="lookup-time" type="range" min="1000" max="10000" step="500" value="6500" aria-label="Detail lookup time">
+          <div class="range-labels"><span>1 second · Faster</span><span>10 seconds · More detail</span></div>
+          <div class="preset-options" aria-label="Lookup presets"><button class="chip" data-time="2000">Quick <span>2s</span></button><button class="chip" data-time="4000">Balanced <span>4s</span></button><button class="chip" data-time="6500">Detailed <span>6.5s</span></button></div>
+          <div class="info-note lookup-note"><svg class="icon"><use href="#i-info"/></svg><p id="lookup-help">A shorter lookup can load the list faster, but more sources may show Unknown quality, bitrate or codec information.</p></div>
+          <p class="fine-print">This window covers stream details. Finding titles and contacting sources can add time.</p>
+        </section>
+        <section class="card settings-card"><div><h2>Appearance</h2><p>Choose a lighter view or a little less light.</p></div><div class="segmented" aria-label="Appearance"><button data-theme="light"><svg class="icon"><use href="#i-sun"/></svg>Light</button><button data-theme="dark"><svg class="icon"><use href="#i-moon"/></svg>Dark</button></div></section>
+        <section class="card settings-card"><div><h2>TMDB connection</h2><p>Your API key is encrypted and saved on the server.</p></div><button class="button secondary" id="change-key">Update API key</button></section>
+      </section>
+
+      <section class="view" id="view-status" aria-labelledby="status-title" hidden>
+        <div class="page-heading heading-with-action"><div><span class="eyebrow">STATUS</span><h1 id="status-title">A look at the connections.</h1><p>Status of every source, including those you haven’t selected.</p></div><button class="button secondary" id="refresh-status"><svg class="icon"><use href="#i-refresh"/></svg>Refresh status</button></div>
+        <div class="summary-grid" aria-label="Source status summary" aria-live="polite">
+          <div class="summary-card"><span class="summary-label">Total sources</span><strong id="status-total">5</strong></div>
+          <div class="summary-card"><span class="summary-label">Up</span><strong class="status-up" id="status-up">—</strong></div>
+          <div class="summary-card"><span class="summary-label">Down</span><strong class="status-down" id="status-down">—</strong></div>
+        </div>
+        <section class="card status-card" aria-label="Source status"><div class="status-columns"><span>Source</span><span>Status</span><span>Response</span><span>Last checked</span></div><div id="source-status"></div></section>
+        <p class="fine-print status-footnote">An available source API can still have unavailable videos.</p>
+        <p class="form-error" id="status-error" role="alert" hidden></p>
+      </section>
+
+      <div class="save-bar" id="save-bar" hidden><div><strong>Unsaved changes</strong><span id="save-hint">Make it yours, then save.</span></div><div class="save-actions"><button class="button secondary" id="discard">Discard</button><button class="button primary" id="save-settings">Save changes <svg class="icon"><use href="#i-check"/></svg></button></div></div>
+      <footer class="page-footer"><span></span><button class="text-button" id="open-notice">DMCA Notice</button></footer>
+    </main>
+  </div>
+
+  <dialog id="dmca-dialog" class="modal notice-modal" aria-labelledby="dmca-title" aria-describedby="dmca-copy">
+    <div class="modal-heading"><span class="eyebrow">BEFORE YOU CONTINUE</span><h2 id="dmca-title">DMCA Notice</h2></div>
+    <div class="notice-copy" id="dmca-copy" tabindex="0">
+      <p>We issue this notice to clarify that these addons operate like standard web browsers by retrieving video files from the Internet and do not, by themselves, contravene the Digital Millennium Copyright Act (17 U.S.C. §§ 1201–1205, 17 U.S.C. § 512) or other applicable law. Any content accessed through this addon is provided by third-party websites or file hosts and is not hosted, controlled, or maintained by this website, and users are solely responsible for ensuring their use complies with applicable copyright, licensing, contract, and other laws. Pursuant to the DMCA, copyright owners seeking removal of infringing material should follow the notice-and-takedown procedures set forth in 17 U.S.C. §§ 1201–1205, 17 U.S.C. § 512. If you believe any content accessed via the addon infringed intellectual property rights, please direct your complaints to the hosting websites or file hosts rather than to this website or the Nuvio application developers.</p>
+    </div>
+    <div class="modal-footer"><button class="button primary" id="understand" autofocus>I Understand <svg class="icon"><use href="#i-arrow"/></svg></button></div>
+  </dialog>
+
+  <dialog id="key-dialog" class="modal key-modal" aria-labelledby="key-title" aria-describedby="key-description">
+    <div class="key-modal-top"><div class="key-brand"><span class="key-mark"><svg class="icon"><use href="#i-wind"/></svg></span><span>Mist</span></div></div>
+    <h2 id="key-title">TMDB Key Required</h2><p id="key-description">Connect TMDB to match your TMDB-powered catalog with the right information</p>
+    <form id="key-form">
+      <label class="field-label" for="api-key">TMDB API key</label><input id="api-key" name="apiKey" type="password" required minlength="32" maxlength="32" pattern="[a-fA-F0-9]{32}" autocomplete="off" spellcheck="false" placeholder="Your TMDB API key" aria-describedby="key-help">
+      <p class="fine-print" id="key-help"><svg class="icon"><use href="#i-lock"/></svg>Encrypted and saved on the server.</p>
+      <p class="form-error" id="key-error" role="alert" hidden></p>
+      <div class="key-actions"><button class="button secondary" id="cancel-key" type="button" hidden>Cancel</button><button class="button primary" id="save-key" type="submit">Continue <svg class="icon"><use href="#i-arrow"/></svg></button></div>
+      <p class="key-link">Need a key? <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">Get one from TMDB <svg class="icon"><use href="#i-external"/></svg></a></p>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="noscript">Enable JavaScript to acknowledge the notice and configure Mist.</p></noscript>
+</body>
+</html>

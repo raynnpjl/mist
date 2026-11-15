@@ -1,0 +1,41 @@
+{
+  "checkedAt": "2026-11-15T05:03:21.618Z",
+  "purpose": "Public source-API checks; no installation credentials used",
+  "providers": [
+    {
+      "id": "hongniu",
+      "name": "红牛",
+      "available": true,
+      "checkedAt": "2026-11-15T05:03:21.618Z",
+      "responseMs": 887
+    },
+    {
+      "id": "tiantang",
+      "name": "天堂",
+      "available": true,
+      "checkedAt": "2026-11-15T05:03:21.325Z",
+      "responseMs": 568
+    },
+    {
+      "id": "baofeng",
+      "name": "暴风",
+      "available": true,
+      "checkedAt": "2026-11-15T05:03:20.966Z",
+      "responseMs": 209
+    },
+    {
+      "id": "liangzi",
+      "name": "量子",
+      "available": true,
+      "checkedAt": "2026-11-15T05:03:21.034Z",
+      "responseMs": 276
+    },
+    {
+      "id": "youku",
+      "name": "优酷",
+      "available": true,
+      "checkedAt": "2026-11-15T05:03:21.245Z",
+      "responseMs": 487
+    }
+  ]
+}

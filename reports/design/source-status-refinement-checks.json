@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-11-15T06:07:20.609Z",
+  "fixture": true,
+  "openingNavbarDivider": false,
+  "panelNavbarDivider": true,
+  "sourceCards": {
+    "count": 5,
+    "icons": false,
+    "links": false,
+    "endpointsExposed": false
+  },
+  "status": {
+    "total": 5,
+    "up": 4,
+    "down": 1,
+    "selected": 1,
+    "includesUnselected": true,
+    "pendingCountsNeutral": true,
+    "light": {
+      "up": "#1a7f37",
+      "down": "#b42318"
+    },
+    "dark": {
+      "up": "#70d39b",
+      "down": "#ff8b82"
+    }
+  },
+  "widthsWithoutOverflow": [
+    320,
+    390,
+    768,
+    1024,
+    1440
+  ],
+  "preferencesPersist": true,
+  "dmcaGatePreserved": true,
+  "headerThemeDuringSetup": true,
+  "browserErrors": []
+}

@@ -1,0 +1,362 @@
+[
+  {
+    "id": "tmdb:270431:1:1",
+    "cache": "cold",
+    "totalMs": 7523,
+    "streamCount": 5,
+    "sources": [
+      {
+        "name": "1080P",
+        "provider": "红牛云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "暴风云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "量子云播"
+      },
+      {
+        "name": "536P",
+        "provider": "优酷云播"
+      }
+    ],
+    "events": [
+      {
+        "stage": "title",
+        "startMs": 0,
+        "durationMs": 751
+      },
+      {
+        "stage": "episode",
+        "startMs": 751,
+        "durationMs": 323
+      },
+      {
+        "stage": "provider:baofeng",
+        "startMs": 1074,
+        "durationMs": 313
+      },
+      {
+        "stage": "provider:liangzi",
+        "startMs": 1074,
+        "durationMs": 517
+      },
+      {
+        "stage": "provider:tiantang",
+        "startMs": 1074,
+        "durationMs": 571
+      },
+      {
+        "stage": "provider:hongniu",
+        "startMs": 1074,
+        "durationMs": 942
+      },
+      {
+        "stage": "provider:youku",
+        "startMs": 1074,
+        "durationMs": 1190
+      },
+      {
+        "stage": "media",
+        "startMs": 2265,
+        "durationMs": 834
+      },
+      {
+        "stage": "media",
+        "startMs": 2265,
+        "durationMs": 1193
+      },
+      {
+        "stage": "media",
+        "startMs": 2265,
+        "durationMs": 4255
+      },
+      {
+        "stage": "media",
+        "startMs": 2265,
+        "durationMs": 5169
+      },
+      {
+        "stage": "media",
+        "startMs": 2265,
+        "durationMs": 5257
+      }
+    ]
+  },
+  {
+    "id": "tmdb:270431:1:1",
+    "cache": "warm",
+    "totalMs": 3,
+    "streamCount": 5,
+    "sources": [
+      {
+        "name": "1080P",
+        "provider": "红牛云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "暴风云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "量子云播"
+      },
+      {
+        "name": "536P",
+        "provider": "优酷云播"
+      }
+    ],
+    "events": [
+      {
+        "stage": "title",
+        "startMs": 0,
+        "durationMs": 0
+      },
+      {
+        "stage": "episode",
+        "startMs": 0,
+        "durationMs": 0
+      },
+      {
+        "stage": "provider:hongniu",
+        "startMs": 0,
+        "durationMs": 2
+      },
+      {
+        "stage": "provider:tiantang",
+        "startMs": 0,
+        "durationMs": 2
+      },
+      {
+        "stage": "provider:baofeng",
+        "startMs": 0,
+        "durationMs": 2
+      },
+      {
+        "stage": "provider:liangzi",
+        "startMs": 0,
+        "durationMs": 2
+      },
+      {
+        "stage": "provider:youku",
+        "startMs": 0,
+        "durationMs": 2
+      },
+      {
+        "stage": "media",
+        "startMs": 2,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 2,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 2,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 2,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 2,
+        "durationMs": 0
+      }
+    ]
+  },
+  {
+    "id": "tmdb:224755:1:1",
+    "cache": "cold",
+    "totalMs": 9196,
+    "streamCount": 5,
+    "sources": [
+      {
+        "name": "1080P",
+        "provider": "红牛云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "量子云播"
+      },
+      {
+        "name": "Unknown",
+        "provider": "优酷云播"
+      }
+    ],
+    "events": [
+      {
+        "stage": "title",
+        "startMs": 0,
+        "durationMs": 637
+      },
+      {
+        "stage": "episode",
+        "startMs": 637,
+        "durationMs": 277
+      },
+      {
+        "stage": "provider:liangzi",
+        "startMs": 914,
+        "durationMs": 277
+      },
+      {
+        "stage": "provider:youku",
+        "startMs": 914,
+        "durationMs": 310
+      },
+      {
+        "stage": "provider:tiantang",
+        "startMs": 914,
+        "durationMs": 617
+      },
+      {
+        "stage": "provider:hongniu",
+        "startMs": 914,
+        "durationMs": 987
+      },
+      {
+        "stage": "provider:baofeng",
+        "startMs": 914,
+        "durationMs": 3222
+      },
+      {
+        "stage": "media",
+        "startMs": 4136,
+        "durationMs": 3507
+      },
+      {
+        "stage": "media",
+        "startMs": 4136,
+        "durationMs": 3540
+      },
+      {
+        "stage": "media",
+        "startMs": 4136,
+        "durationMs": 3634
+      },
+      {
+        "stage": "media",
+        "startMs": 4136,
+        "durationMs": 4883
+      },
+      {
+        "stage": "media",
+        "startMs": 4136,
+        "durationMs": 5060
+      }
+    ]
+  },
+  {
+    "id": "tmdb:224755:1:1",
+    "cache": "warm",
+    "totalMs": 5,
+    "streamCount": 5,
+    "sources": [
+      {
+        "name": "1080P",
+        "provider": "红牛云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "天堂云播"
+      },
+      {
+        "name": "1080P",
+        "provider": "量子云播"
+      },
+      {
+        "name": "Unknown",
+        "provider": "优酷云播"
+      }
+    ],
+    "events": [
+      {
+        "stage": "title",
+        "startMs": 0,
+        "durationMs": 0
+      },
+      {
+        "stage": "episode",
+        "startMs": 0,
+        "durationMs": 0
+      },
+      {
+        "stage": "provider:hongniu",
+        "startMs": 0,
+        "durationMs": 4
+      },
+      {
+        "stage": "provider:tiantang",
+        "startMs": 0,
+        "durationMs": 4
+      },
+      {
+        "stage": "provider:liangzi",
+        "startMs": 0,
+        "durationMs": 4
+      },
+      {
+        "stage": "provider:youku",
+        "startMs": 0,
+        "durationMs": 4
+      },
+      {
+        "stage": "provider:baofeng",
+        "startMs": 0,
+        "durationMs": 5
+      },
+      {
+        "stage": "media",
+        "startMs": 5,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 5,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 5,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 5,
+        "durationMs": 0
+      },
+      {
+        "stage": "media",
+        "startMs": 5,
+        "durationMs": 0
+      }
+    ]
+  }
+]

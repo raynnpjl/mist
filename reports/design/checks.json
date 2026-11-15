@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-15T05:05:10.179Z",
+  "mode": "isolated fixture API; no production credentials",
+  "checks": [
+    "First-visit notice blocks setup, Escape and backdrop dismissal; no API calls before acknowledgement",
+    "TMDB modal supports validation, light/dark mode and successful setup without browser-stored API keys",
+    "Source toggles and lookup settings persist and change actual stream responses; shorter-window warning is visible",
+    "Reload restores acknowledgement, theme, encrypted installation and preferences; empty selection cannot be saved",
+    "Status tab checks provider APIs and displays successful and unavailable results",
+    "Four responsive views and first-visit dialogs fit mobile, tablet and desktop widths without horizontal overflow"
+  ]
+}

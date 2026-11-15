@@ -1,0 +1,310 @@
+{
+  "checkedAt": "2026-11-14T21:09:48.085Z",
+  "version": "0.4.0",
+  "requests": [
+    {
+      "id": "tmdb:270431:1:1",
+      "showName": "折月亮",
+      "catalogEpisode": {
+        "date": "2026-11-05",
+        "year": 2026,
+        "name": "雨伞杀手竟是白月光"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n暴风云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "536p",
+          "description": "折月亮 S01E01\nBitrate: 2 Mbps\nLanguage: Chinese\n优酷云播",
+          "filename": "折月亮 S01E01 536p 1280x536 H.264 AAC 2.0 Chinese.m3u8"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:224755:1:1",
+      "showName": "女子推理社",
+      "catalogEpisode": {
+        "date": "2023-04-18",
+        "year": 2023,
+        "name": "第1集：解救三班岛（上）"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+          "filename": "女子推理社 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "女子推理社 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "女子推理社 S01E01 Chinese.m3u8"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:259700:1:1",
+      "showName": "忙忙碌碌寻宝藏",
+      "catalogEpisode": {
+        "date": "2024-07-28",
+        "year": 2024,
+        "name": "第1期：田曦薇王安宇开启寻宝"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "忙忙碌碌寻宝藏 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "忙忙碌碌寻宝藏 S01E01 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "540p",
+          "description": "忙忙碌碌寻宝藏 S01E01\nBitrate: 0.8 Mbps\nLanguage: Unknown\n量子云播",
+          "filename": "忙忙碌碌寻宝藏 S01E01 540p 960x540 H.264 AAC 2.0.m3u8"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "忙忙碌碌寻宝藏 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n暴风云播",
+          "filename": "忙忙碌碌寻宝藏 S01E01 Chinese.m3u8"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "忙忙碌碌寻宝藏 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "忙忙碌碌寻宝藏 S01E01 Chinese.m3u8"
+        }
+      ]
+    },
+    {
+      "id": "tt36983579:1:1",
+      "showName": "折月亮",
+      "catalogEpisode": {
+        "date": "2026-11-05",
+        "year": 2026,
+        "name": "雨伞杀手竟是白月光"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n暴风云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "800p",
+          "description": "折月亮 S01E01\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+          "filename": "折月亮 S01E01 800p 1920x800 H.264 AAC 2.0 Chinese.m3u8"
+        },
+        {
+          "name": "536p",
+          "description": "折月亮 S01E01\nBitrate: 2 Mbps\nLanguage: Chinese\n优酷云播",
+          "filename": "折月亮 S01E01 536p 1280x536 H.264 AAC 2.0 Chinese.m3u8"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:224755:1:2",
+      "showName": "女子推理社",
+      "catalogEpisode": {
+        "date": "2023-04-18",
+        "year": 2023,
+        "name": "第1集：解救三班岛（下）"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E02\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "女子推理社 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第20230418期下"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E02\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第1集：解救三班岛（下）"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E02\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "20230418下"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E02\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+          "filename": "女子推理社 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第01集下"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "女子推理社 S01E02\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "女子推理社 S01E02 Chinese.m3u8",
+          "providerLabel": "第20230418期下"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:224755:1:3",
+      "showName": "女子推理社",
+      "catalogEpisode": {
+        "date": "2023-04-25",
+        "year": 2023,
+        "name": "第2集：三连罪（上）"
+      },
+      "streamCount": 5,
+      "choices": [
+        {
+          "name": "Quality unavailable",
+          "description": "女子推理社 S01E03\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "女子推理社 S01E03 Chinese.m3u8",
+          "providerLabel": "第20230425期上"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E03\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E03 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第2集：三连罪（上）"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E03\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "女子推理社 S01E03 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "20230425上"
+        },
+        {
+          "name": "1080p",
+          "description": "女子推理社 S01E03\nBitrate: 0.8 Mbps\nLanguage: Chinese\n量子云播",
+          "filename": "女子推理社 S01E03 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第02集上"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "女子推理社 S01E03\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "女子推理社 S01E03 Chinese.m3u8",
+          "providerLabel": "第20230425期上"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:259700:1:2",
+      "showName": "忙忙碌碌寻宝藏",
+      "catalogEpisode": {
+        "date": "2024-08-04",
+        "year": 2024,
+        "name": "第2期上：寻宝团解谜困境"
+      },
+      "streamCount": 4,
+      "choices": [
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E02\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "忙忙碌碌寻宝藏 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第2期（上）"
+        },
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E02\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "忙忙碌碌寻宝藏 S01E02 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第2期上"
+        },
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E02\nBitrate: 0.8 Mbps\nLanguage: Unknown\n量子云播",
+          "filename": "忙忙碌碌寻宝藏 S01E02 1080p 1920x1080 H.264 AAC 2.0.m3u8",
+          "providerLabel": "20240804上"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "忙忙碌碌寻宝藏 S01E02\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "忙忙碌碌寻宝藏 S01E02 Chinese.m3u8",
+          "providerLabel": "第20240804期上"
+        }
+      ]
+    },
+    {
+      "id": "tmdb:259700:1:3",
+      "showName": "忙忙碌碌寻宝藏",
+      "catalogEpisode": {
+        "date": "2024-08-05",
+        "year": 2024,
+        "name": "第2期下：揭秘环节全员飚演技"
+      },
+      "streamCount": 4,
+      "choices": [
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E03\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播",
+          "filename": "忙忙碌碌寻宝藏 S01E03 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第2期（下）"
+        },
+        {
+          "name": "1080p",
+          "description": "忙忙碌碌寻宝藏 S01E03\nBitrate: 0.8 Mbps\nLanguage: Chinese\n天堂云播",
+          "filename": "忙忙碌碌寻宝藏 S01E03 1080p 1920x1080 H.264 AAC 2.0 Chinese.m3u8",
+          "providerLabel": "第2期下"
+        },
+        {
+          "name": "720p",
+          "description": "忙忙碌碌寻宝藏 S01E03\nBitrate: 0.8 Mbps\nLanguage: Unknown\n量子云播",
+          "filename": "忙忙碌碌寻宝藏 S01E03 720p 1280x720 H.264 AAC 2.0.m3u8",
+          "providerLabel": "20240805下"
+        },
+        {
+          "name": "Quality unavailable",
+          "description": "忙忙碌碌寻宝藏 S01E03\nBitrate: Unavailable\nLanguage: Chinese\n优酷云播",
+          "filename": "忙忙碌碌寻宝藏 S01E03 Chinese.m3u8",
+          "providerLabel": "第20240805期下"
+        }
+      ]
+    }
+  ]
+}
