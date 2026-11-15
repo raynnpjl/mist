@@ -9,7 +9,7 @@ import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
   id: "org.mist.chinese", version: "1.0.1", name: "Mist",
-  description: "HTTP Addon for chinese content\nProviders: 红牛, 天堂, 暴风, 量子, 优酷",
+  description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
     signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..DR7JuNucW3enoPVljnZzog.En6KpQ_KuEr3RJnxcdTaGzjHLATNm5GGnlqDNQwH5shzRQbxO-HDwkHntvXKW07vowSEL9jjSczmZ_cFMh7-oPuLreMtb2gPFY2gvxPxmP4jocVaz6f0VF2_LEfE_w-R.g0ERoiqMTnqK-txFWOZNsg"
