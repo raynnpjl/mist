@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createApp, manifest } from "../src/app.js";
+import { HlsPlaylists } from "../src/hls.js";
 import { MetadataResolver, parseVideo } from "../src/metadata.js";
 import { AddonService } from "../src/service.js";
 import { Provider } from "../src/providers.js";
@@ -40,6 +41,18 @@ test("IMDb and TMDB episodes return Mist sources without any catalog or metadata
   }
   const second = await service.streams("series", "tt26235088:1:2");
   assert.ok(second.length && second.every(s => s.url.endsWith("/2.m3u8")));
+});
+
+test("source titles label every height above 720 as 1080P while preserving actual dimensions", async () => {
+  for (const height of [480, 606, 720, 721, 768, 800, 900, 1080, 1440, 2160]) {
+    const fixture = fixtures([drama()], 1);
+    const inspector = new MediaInspector(fixture.fetcher, async () => ({ width: 1920, height }));
+    const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
+    const streams = await service.streams("series", "tt26235088:1:1");
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].name, height > 720 ? "1080P" : `${height}P`, `height ${height}`);
+    assert.ok(streams[0].behaviorHints.filename.includes(`${height}p 1920x${height}`));
+  }
 });
 
 test("a failed source does not block healthy providers", async () => {
@@ -129,7 +142,7 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
   const installations = await installationFixture().open();
   const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers).listen(0, "127.0.0.1");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fixture.fetcher)).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -142,12 +155,57 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
     const streams = await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`);
     assert.equal(streams.status, 200);
     assert.equal(streams.headers.get("access-control-allow-origin"), "*");
-    assert.equal((await streams.json()).streams.length, 2);
+    const payload = await streams.json();
+    assert.equal(payload.streams.length, 2);
+    for (const stream of payload.streams) {
+      assert.equal(typeof stream.description, "string");
+      assert.equal(Object.hasOwn(stream, "title"), false, "Stremio treats title as a duplicate description field");
+    }
     assert.equal((await fetch(`${base}/catalog/series/chinese-dramas.json`)).status, 404);
     assert.equal((await fetch(`${base}/meta/series/tt26235088.json`)).status, 404);
     const html = await (await fetch(base)).text();
     const withoutProviderNames = html.replace(/红牛|天堂|暴风|量子|优酷/g, "");
     assert.ok(!/\p{Script=Han}/u.test(withoutProviderNames));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test("量子 streams use a private playlist relay while other providers stay direct", async () => {
+  const fixture = fixtures([drama()], 4);
+  const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
+  const installations = await installationFixture().open();
+  const id = await installations.save("0123456789abcdef0123456789abcdef");
+  const playlistFetcher: typeof fetch = async input => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("offline.m3u8")) return new Response("offline", { status: 503 });
+    return new Response(path.endsWith("variant.m3u8")
+      ? "#EXTM3U\n#EXTINF:6.6,\nbefore.ts\n# ppvod-ad-injected v1\n#EXT-X-DISCONTINUITY\n#EXTINF:4,\nad.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:4,\nafter.ts\n#EXT-X-ENDLIST\n"
+      : "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nvariant.m3u8\n");
+  };
+  const playlists = new HlsPlaylists("01".repeat(32), playlistFetcher);
+  const server = createApp(installations, () => service, fixture.providers, playlists).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const { streams } = await (await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`)).json();
+    const liangzi = streams.find((stream: any) => stream.behaviorHints.bingeGroup.startsWith("mist:liangzi:"));
+    assert.ok(liangzi.url.startsWith(`${base}/${id}/hls/`), "量子 must use the repaired playlist endpoint");
+    assert.ok(streams.filter((stream: any) => stream !== liangzi).every((stream: any) => !stream.url.startsWith(base)));
+    const response = await fetch(liangzi.url);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.match(response.headers.get("content-type")!, /application\/vnd.apple.mpegurl/);
+    const child = (await response.text()).split("\n").find(line => line && !line.startsWith("#"))!;
+    assert.ok(child.startsWith(`${base}/${id}/hls/`));
+    const media = await (await fetch(child)).text();
+    assert.ok(!/ppvod|ad\.ts|DISCONTINUITY/.test(media));
+    assert.ok(media.includes("https://liangzi.example/1/before.ts"));
+    assert.ok(media.includes("https://liangzi.example/1/after.ts"));
+    assert.equal((await fetch(`${base}/${id}/hls/invalid.m3u8`)).status, 400);
+    assert.equal((await fetch(`${base}/${"a".repeat(48)}/hls/invalid.m3u8`)).status, 404);
+    assert.equal((await fetch(playlists.url("https://liangzi.example/offline.m3u8", id, base))).status, 502);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

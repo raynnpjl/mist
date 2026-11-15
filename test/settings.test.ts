@@ -5,6 +5,7 @@ import { setImmediate } from "node:timers/promises";
 import type { AddressInfo } from "node:net";
 import { defaultSettings, parseSettings, Settings } from "../src/settings.js";
 import { createApp } from "../src/app.js";
+import { HlsPlaylists } from "../src/hls.js";
 import { createProviders } from "../src/providers.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { MediaInspector } from "../src/media.js";
@@ -69,8 +70,8 @@ test("dashboard preferences affect streams and inspection budgets, while status 
       new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs));
   };
   const replicaStore = await redis.open();
-  const server = createApp(store, factory, providers).listen(0, "127.0.0.1");
-  const replica = createApp(replicaStore, factory, providers).listen(0, "127.0.0.1");
+  const server = createApp(store, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
+  const replica = createApp(replicaStore, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
   t.after(async () => {
     await Promise.all([server, replica].map(instance => new Promise<void>((resolve, reject) => instance.close(error => error ? reject(error) : resolve()))));
   });

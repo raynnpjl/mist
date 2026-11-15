@@ -4,6 +4,7 @@ import { createProviders, loadSources } from "./providers.js";
 import { AddonService } from "./service.js";
 import { MetadataResolver } from "./metadata.js";
 import { Installations } from "./installations.js";
+import { HlsPlaylists } from "./hls.js";
 import { MediaInspector, probeMedia } from "./media.js";
 
 const port = Number(process.env.PORT || 7000);
@@ -15,7 +16,7 @@ async function main() {
   const providers = createProviders(loadSources(), fetch, timeout);
   const server = createApp(installations, (key, settings) => new AddonService(
     providers.filter(provider => settings.sources.includes(provider.source.id)), new MetadataResolver(fetch, key, timeout), fetch,
-    new MediaInspector(fetch, probeMedia, settings.inspectionTimeoutMs)), providers)
+    new MediaInspector(fetch, probeMedia, settings.inspectionTimeoutMs)), providers, new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!))
     .listen(port, process.env.HOST || "0.0.0.0", () => console.log(`Mist setup: http://localhost:${port}/configure`));
   server.requestTimeout = 60_000;
   function shutdown() {

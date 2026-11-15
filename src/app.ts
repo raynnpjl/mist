@@ -2,13 +2,14 @@ import express from "express";
 import { resolve } from "node:path";
 import { addonBuilder, getRouter, Manifest } from "stremio-addon-sdk";
 import { Cache } from "./cache.js";
+import { HlsPlaylists } from "./hls.js";
 import { installationId, Installations } from "./installations.js";
 import { Provider, SOURCES } from "./providers.js";
 import { AddonService } from "./service.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.0.1", name: "Mist",
+  id: "org.mist.chinese", version: "1.1.0", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
@@ -23,7 +24,7 @@ function manifestFor(req: express.Request): Manifest {
   return { ...manifest, logo: `${req.protocol}://${req.get("host")}/assets/icon.png` };
 }
 
-export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[]) {
+export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[], playlists: HlsPlaylists) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
   app.set("trust proxy", 1);
@@ -93,6 +94,18 @@ export function createApp(installations: Installations, createService: (key: str
     } catch (error) { next(error); }
   });
 
+  app.get("/:installation/hls/:token.m3u8", async (req, res, next) => {
+    try {
+      const id = req.params.installation;
+      if (!await installations.get(id)) { next(); return; }
+      const source = playlists.source(req.params.token, id);
+      if (!source) { res.status(400).json({ error: "Invalid playlist link" }); return; }
+      const body = await playlists.read(source, id, `${req.protocol}://${req.get("host")}`);
+      res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "private, no-store" })
+        .type("application/vnd.apple.mpegurl").send(body);
+    } catch (_error) { res.status(502).json({ error: "Could not load the source playlist" }); }
+  });
+
   app.use("/:installation", async (req, res, next) => {
     const id = req.params.installation;
     if (!installationId.test(id)) { next(); return; }
@@ -103,7 +116,9 @@ export function createApp(installations: Installations, createService: (key: str
       const router = await routers.get(`${id}:${installation.revision}:${installedManifest.logo}`, 6 * 60 * 60_000, async () => {
         const service = createService(installation.apiKey, installation.settings);
         const builder = new addonBuilder(installedManifest);
-        builder.defineStreamHandler(async args => ({ streams: await service.streams(args.type, args.id), cacheMaxAge: 30 }));
+        builder.defineStreamHandler(async args => ({ streams: (await service.streams(args.type, args.id)).map(stream =>
+          stream.behaviorHints.bingeGroup.startsWith("mist:liangzi:") && /\.m3u8$/i.test(new URL(stream.url).pathname)
+            ? { ...stream, url: playlists.url(stream.url, id, new URL(installedManifest.logo!).origin) } : stream), cacheMaxAge: 30 }));
         return getRouter(builder.getInterface());
       });
       router(req, res, next);
