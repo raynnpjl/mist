@@ -4,9 +4,9 @@ const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;
 const read = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const remember = (key, value) => { try { value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch {} };
 const pathId = location.pathname.match(/^\/([a-f0-9]{48})\/configure\/?$/)?.[1];
-const rememberedId = read('mist.installation');
+remember('mist.installation', null);
 const state = {
-  installation: pathId || (/^[a-f0-9]{48}$/.test(rememberedId || '') ? rememberedId : undefined),
+  installation: pathId,
   consent: read('mist.notice') === '1', config: null, draft: null, view: 'overview',
   health: [], checking: false, saving: false, keyPending: false, entering: false
 };
@@ -155,7 +155,6 @@ async function loadStatus() {
 async function loadConfiguration() {
   state.config = await api(`/api/installations/${state.installation}`);
   state.draft = structuredClone(state.config.settings);
-  remember('mist.installation', state.installation);
   history.replaceState(null, '', `/${state.installation}/configure`);
   showWorkspace();
 }
@@ -186,7 +185,6 @@ async function enter() {
       catch (error) {
         if (error.status !== 404) throw error;
         state.installation = undefined;
-        remember('mist.installation', null);
         $('welcome-status').textContent = 'Reconnect TMDB to open your workspace.';
       }
     }
@@ -229,7 +227,6 @@ $('key-form').addEventListener('submit', async event => {
   try {
     const data = await api('/api/configure', { method: 'POST', body: JSON.stringify({ apiKey: $('api-key').value, installation: state.installation }) });
     state.installation = data.installation;
-    remember('mist.installation', state.installation);
     $('api-key').value = '';
     await loadConfiguration();
     $('key-dialog').close();
