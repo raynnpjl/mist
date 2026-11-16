@@ -109,7 +109,11 @@ export class HlsPlaylists {
             "--user-agent", UPSTREAM_HEADERS["User-Agent"], "--output", "/dev/null", "--write-out", "%{http_code} HTTP/%{http_version}", "--url", source],
           { timeout: 4500, killSignal: "SIGKILL", maxBuffer: 1024, windowsHide: true });
           curl = stdout.trim();
-        } catch { /* Log only the outcome, never the private source URL. */ }
+        } catch (error) {
+          // Process errors include command arguments; log only their exit code.
+          const code = (error as NodeJS.ErrnoException).code;
+          curl = `failed:${code ?? "unknown"}`;
+        }
         console.warn("[Mist HLS] CDN client comparison", { host: new URL(source).hostname, node: response.status, curl });
       }
       throw new Error(`Playlist HTTP ${response.status}`);
