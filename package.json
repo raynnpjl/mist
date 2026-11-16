@@ -15,7 +15,9 @@
     "probe": "tsx scripts/probe.ts"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "express": "^4.22.3",
+    "impit": "^0.14.9",
     "stremio-addon-sdk": "^1.6.10"
   },
   "overrides": {

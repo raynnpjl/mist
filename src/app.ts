@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { addonBuilder, getRouter, Manifest } from "stremio-addon-sdk";
 import { Cache } from "./cache.js";
 import { installationId, Installations } from "./installations.js";
-import { Provider, SOURCES } from "./providers.js";
-import { AddonService } from "./service.js";
+import { STREAM_SOURCES } from "./providers.js";
+import { AddonService, StreamProvider } from "./service.js";
 import { HlsPlaylists } from "./hls.js";
 import { defaultSettings, parseSettings, Settings } from "./settings.js";
 
@@ -24,7 +24,7 @@ function manifestFor(req: express.Request): Manifest {
   return { ...manifest, logo: `${req.protocol}://${req.get("host")}/assets/icon.png` };
 }
 
-export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: Provider[], playlists: HlsPlaylists) {
+export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: StreamProvider[], playlists: HlsPlaylists) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
   app.set("trust proxy", 1);
@@ -71,7 +71,7 @@ export function createApp(installations: Installations, createService: (key: str
       const installation = await installations.get(id);
       if (!installation) { res.status(404).json({ error: "Installation not found" }); return; }
       res.json({ installation: id, manifestPath: `/${id}/manifest.json`, settings: installation.settings,
-        providers: SOURCES.map(source => ({ id: source.id, name: source.name })) });
+        providers: STREAM_SOURCES.map(source => ({ id: source.id, name: source.name })) });
     } catch (error) { next(error); }
   });
 

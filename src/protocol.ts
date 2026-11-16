@@ -4,5 +4,5 @@ import type { Stream } from "stremio-addon-sdk";
 export type DirectStream = Omit<Stream, "behaviorHints" | "title"> & {
   url: string;
   description: string;
-  behaviorHints: { notWebReady: boolean; bingeGroup: string; filename: string };
+  behaviorHints: { notWebReady: boolean; bingeGroup: string; filename: string; videoSize?: number };
 };

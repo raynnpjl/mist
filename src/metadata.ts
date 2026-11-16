@@ -65,6 +65,11 @@ export class MetadataResolver {
     if (!(await this.tmdb("authentication"))?.success) throw new Error("TMDB authentication failed");
   }
 
+  async englishName(title: Title, request: VideoRequest): Promise<string | undefined> {
+    const data = await this.tmdb(`${request.type === "movie" ? "movie" : "tv"}/${title.tmdbId}`, { language: "en-US" });
+    return value(data?.title || data?.name) || undefined;
+  }
+
   private async tmdbTitle(request: VideoRequest): Promise<Title | undefined> {
     let id = request.id.startsWith("tmdb:") ? request.id.slice(5) : undefined;
     const endpoint = request.type === "movie" ? "movie" : "tv";

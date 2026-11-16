@@ -4,8 +4,11 @@ import { EpisodeInfo, MetadataResolver, Title, VideoRequest, parseVideo } from "
 import { Playable, Vod, chineseKind, normalized, value } from "./model.js";
 import { Fetcher, Provider } from "./providers.js";
 import { DirectStream } from "./protocol.js";
+import { MkvDrama } from "./mkvdrama.js";
 
-interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string }
+export type StreamProvider = Provider | MkvDrama;
+interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string;
+  filename?: string; videoSize?: number }
 
 function present(candidate: Candidate, title: Title, request: VideoRequest, info: MediaInfo): DirectStream {
   const quality = info.height ? `${Math.round(info.height)}p` : "Unknown";
@@ -15,13 +18,14 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   const bitrate = info.bitrate ? `${mbps(info.bitrate / 1_000_000)} Mbps` : "Unavailable";
   const description = [`${title.displayName} ${episode}`, `Bitrate: ${bitrate}`,
     `Language: ${candidate.language || "Unknown"}`, `${candidate.source.name}云播`].join("\n");
-  const extension = /\.mp4$/i.test(new URL(candidate.url).pathname) ? "mp4" : "m3u8";
+  const extension = (candidate.filename || new URL(candidate.url).pathname).match(/\.(mp4|mkv)$/i)?.[1].toLowerCase() || "m3u8";
   const facts = [title.displayName, episode, info.height ? quality : undefined,
     info.width && info.height ? `${info.width}x${info.height}` : undefined, candidate.releaseType, ...codecTags(info), candidate.language];
-  const filename = facts.filter(Boolean).join(" ").replace(/[\\/:*?"<>|\r\n]/g, " ") + `.${extension}`;
-  return { name: info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P"), description, url: candidate.url,
+  const filename = candidate.filename || facts.filter(Boolean).join(" ").replace(/[\\/:*?"<>|\r\n]/g, " ") + `.${extension}`;
+  return { name: !candidate.filename && info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P"), description, url: candidate.url,
     behaviorHints: { notWebReady: extension !== "mp4" || !candidate.url.startsWith("https:"),
-      bingeGroup: `mist:${candidate.source.id}:${candidate.group}`, filename } };
+      bingeGroup: `mist:${candidate.source.id}:${candidate.group}`, filename,
+      ...(candidate.videoSize ? { videoSize: candidate.videoSize } : {}) } };
 }
 
 function chineseOrdinal(number: number): string {
@@ -84,7 +88,7 @@ function catalogPart(name: string): string | undefined {
 }
 
 export class AddonService {
-  constructor(readonly providers: Provider[], private metadata: MetadataResolver, fetcher: Fetcher = fetch,
+  constructor(readonly providers: StreamProvider[], private metadata: MetadataResolver, fetcher: Fetcher = fetch,
     private inspector = new MediaInspector(fetcher)) {}
 
   authenticate(): Promise<void> { return this.metadata.authenticate(); }
@@ -124,6 +128,15 @@ export class AddonService {
     // Numeric episodes remain usable when optional air-date metadata is unavailable.
     const info = this.metadata.episode(title, request).catch(() => undefined);
     const results = await Promise.allSettled(this.providers.map(async provider => {
+      if (provider instanceof MkvDrama) {
+        const [english, episode] = await Promise.all([this.metadata.englishName(title, request).catch(() => undefined), info]);
+        const names = [...new Set([...(english ? [english] : []), ...title.names])];
+        return (await provider.streams({ ...title, names }, request, episode?.year)).map(file => ({
+          candidate: { url: file.url, source: provider.source, group: `direct:${file.height || "unknown"}`,
+            language: "Chinese", filename: file.filename, videoSize: file.size },
+          media: { reachable: false, height: file.height } as MediaInfo
+        }));
+      }
       const candidates = await this.find(provider, title, request, info);
       return Promise.all(candidates.map(async candidate => ({ candidate, media: await this.inspector.inspect(candidate.url) })));
     }));

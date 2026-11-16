@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { defaultSettings, parseSettings, Settings } from "../src/settings.js";
 import { createApp } from "../src/app.js";
 import { HlsPlaylists } from "../src/hls.js";
-import { createProviders } from "../src/providers.js";
+import { createProviders, STREAM_SOURCES } from "../src/providers.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { MediaInspector } from "../src/media.js";
 import { AddonService } from "../src/service.js";
@@ -84,7 +84,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   const endpoint = `${base}/api/installations/${id}`;
   const initial = await (await fetch(endpoint)).text();
   assert.ok(!initial.includes(key));
-  assert.deepEqual(JSON.parse(initial).providers, TEST_SOURCES.map(({ id, name }) => ({ id, name })),
+  assert.deepEqual(JSON.parse(initial).providers, STREAM_SOURCES.map(({ id, name }) => ({ id, name })),
     "configuration must not expose provider endpoints or hostnames");
   assert.deepEqual(JSON.parse(initial).settings, defaultSettings());
   const streamUrl = `${base}/${id}/stream/series/tt26235088:1:1.json`;

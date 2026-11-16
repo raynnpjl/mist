@@ -1,5 +1,6 @@
 import { Cache, Pool, readLimited } from "./cache.js";
 import { Category, Page, Vod, categoryKind, Kind, value } from "./model.js";
+import { MKVDRAMA_SOURCE } from "./mkvdrama.js";
 
 export const SOURCES = [
   { id: "hongniu", name: "红牛" },
@@ -8,6 +9,7 @@ export const SOURCES = [
   { id: "liangzi", name: "量子" },
   { id: "youku", name: "优酷" }
 ];
+export const STREAM_SOURCES = [...SOURCES, MKVDRAMA_SOURCE];
 export type Source = typeof SOURCES[number] & { url: string };
 
 export function loadSources(env: NodeJS.ProcessEnv = process.env): Source[] {
