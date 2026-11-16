@@ -1,6 +1,7 @@
 # Automatic HLS repair across all five providers
 
-Verified locally on 2026-11-15 (Asia/Singapore). Changes are not deployed.
+Initial local verification: 2026-11-15 (Asia/Singapore). Dev preview CDN verification
+followed on 2026-11-16; production has not been promoted as part of that work.
 
 The previous repair matched only the exact S01E18 source. The newly supplied
 `22074_9bc7a87a` source is 今天是太阳雨 S01E19, confirmed against the configured
@@ -117,3 +118,38 @@ deployment because local access does not establish access from Vercel.
 After deployment, manually select the Mist provider from the episode's Sources to replace
 cached stream links. The old `/repairs/` snapshot route is no longer served.
 Unverifiable, encrypted or baked-in ads are outside this repair.
+
+## Dev preview CDN verification — 2026-11-16
+
+Preview initially failed to start because `UPSTASH_REDIS_REST_URL` was missing.
+The owner added Redis variables to Preview and redeployed; `/health` then returned
+success. That resolved startup, but actual playlist requests still bypassed repair.
+
+The reported source was `https://v.lzcdn27.com/20261116/22104_58e8046c/index.m3u8`.
+The diagnostic headers and runtime logs identified `upstream-http-404`, before
+playlist rewriting or ad detection. Direct child and cache-busted master requests
+also bypassed repair.
+
+| Execution location | Node.js fetch | cURL with TLS verification | Playback result |
+| --- | --- | --- | --- |
+| Default Vercel US (`iad1`) | HTTP 404 | HTTP 404 over HTTP/2 | Original CDN redirect; ads remain |
+| Local host and local Docker | HTTP 200 | HTTP 200 over HTTP/2 | Reported ads removed |
+| Vercel Singapore (`sin1`) | HTTP 200 | Not needed | Master and media playlists served through Mist |
+
+Changing only the deployment region made the same signed master and media requests
+succeed with the existing Node.js transport. `vercel.json` therefore selects `sin1`.
+This demonstrates location-dependent CDN access; it does not establish the CDN's
+underlying blocking or routing policy. Temporary cURL comparison code and its Docker
+dependencies were removed after this comparison.
+
+The complete media response from Singapore preview deployment
+`1305f62` (`dpl_BXgM9hvfy2AcnSfdLPGnikBV7UmW`) was saved through the authenticated
+browser and compared with the original upstream records. It contained 676 program
+segments, down from 690 total segments, removing 14 ad segments and 51.52 seconds.
+Every retained program URI and EXTINF duration matched. Both ad markers and their
+discontinuities were absent, and `#EXT-X-ENDLIST` was retained.
+
+The deployment region applies to all providers. This remote comparison establishes
+repair of the reported 量子 episode; the five-provider and decoder results above
+remain local checks. It does not guarantee future CDN availability or verify Nuvio's
+internal-player UI. Production remains unchanged until the dev changes are promoted.
