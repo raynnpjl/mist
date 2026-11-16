@@ -171,7 +171,9 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   }
 });
 
-test("all providers redirect playback to the CDN when it rejects server-side playlist fetches", async () => {
+test("all providers report why repair was bypassed when redirecting playback to a rejecting CDN", async t => {
+  const warnings: unknown[][] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => { warnings.push(args); });
   const fixture = fixtures([drama()], 5);
   let blocked = 0;
   const fetcher: typeof fetch = async (input, options) => {
@@ -200,9 +202,15 @@ test("all providers redirect playback to the CDN when it rejects server-side pla
       assert.equal(response.headers.get("location"), `https://${source.id}.example/1/1.m3u8`);
       assert.equal(response.headers.get("cache-control"), "private, no-store");
       assert.equal(response.headers.get("access-control-allow-origin"), "*");
+      assert.equal(response.headers.get("x-mist-hls-repair"), "bypassed");
+      assert.equal(response.headers.get("x-mist-hls-error"), "upstream-http-403");
       assert.equal(stream.name, "Unknown");
     }
     assert.ok(blocked > 0, "The test must exercise a failed server-side inspection");
+    assert.equal(warnings.length, 5);
+    assert.ok(warnings.every(args => args[0] === "[Mist HLS] Repair bypassed"));
+    assert.ok(warnings.every(args => JSON.stringify(args).includes("upstream-http-403")));
+    assert.ok(warnings.every(args => !JSON.stringify(args).includes(id)), "Diagnostics must not log private installation links");
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

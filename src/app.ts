@@ -104,8 +104,14 @@ export function createApp(installations: Installations, createService: (key: str
       try {
         const body = await playlists.read(source, id, `${req.protocol}://${req.get("host")}`);
         res.type("application/vnd.apple.mpegurl").send(body);
-      } catch {
+      } catch (error) {
         // A CDN can reject server requests while still allowing native players.
+        const status = error instanceof Error ? error.message.match(/^Playlist HTTP (\d{3})$/)?.[1] : undefined;
+        const reason = status ? `upstream-http-${status}` :
+          error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name) ? "upstream-timeout" :
+          error instanceof TypeError && error.message === "fetch failed" ? "upstream-network-error" : "playlist-processing-error";
+        res.set({ "X-Mist-HLS-Repair": "bypassed", "X-Mist-HLS-Error": reason });
+        console.warn("[Mist HLS] Repair bypassed", { host: new URL(source).hostname, reason });
         res.redirect(307, source);
       }
     } catch (error) { next(error); }
