@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Pool, readLimited } from "./cache.js";
 import { webUrl } from "./model.js";
 import { probeSegmentClock, SegmentClock, SegmentProbe } from "./media.js";
@@ -96,7 +98,22 @@ export class HlsPlaylists {
   async read(source: string, installation: string, origin: string): Promise<string> {
     const deadline = Date.now() + 8000;
     const response = await this.fetcher(source, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] }, signal: AbortSignal.timeout(8000) });
-    if (!response.ok) { await response.body?.cancel(); throw new Error(`Playlist HTTP ${response.status}`); }
+    if (!response.ok) {
+      await response.body?.cancel();
+      // Temporary preview probe: compare clients from the same deployment.
+      if (response.status === 404) {
+        let curl = "failed";
+        try {
+          const { stdout } = await promisify(execFile)("curl", ["--disable", "--silent", "--location", "--compressed",
+            "--proto", "=http,https", "--proto-redir", "=http,https", "--max-time", "4", "--max-filesize", "1048576",
+            "--user-agent", UPSTREAM_HEADERS["User-Agent"], "--output", "/dev/null", "--write-out", "%{http_code} HTTP/%{http_version}", "--url", source],
+          { timeout: 4500, killSignal: "SIGKILL", maxBuffer: 1024, windowsHide: true });
+          curl = stdout.trim();
+        } catch { /* Log only the outcome, never the private source URL. */ }
+        console.warn("[Mist HLS] CDN client comparison", { host: new URL(source).hostname, node: response.status, curl });
+      }
+      throw new Error(`Playlist HTTP ${response.status}`);
+    }
     const body = await readLimited(response, 1024 * 1024);
     const base = response.url || source;
     const detected = await this.detectClockBreaks(body, base, deadline);
