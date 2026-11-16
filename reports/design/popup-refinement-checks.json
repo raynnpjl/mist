@@ -1,9 +1,0 @@
-{
-  "checkedAt": "2026-11-15T05:34:17.971Z",
-  "mode": "isolated fixture installation",
-  "checks": [
-    "Clear background; inset header; global theme control works with setup open; Mist wordmark replaces setup eyebrow",
-    "Mandatory DMCA and setup gates retained; completed setup and editing/cancel restore workspace interaction",
-    "Setup popup and header toggle work from 320px through desktop widths without horizontal overflow"
-  ]
-}

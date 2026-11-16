@@ -95,12 +95,23 @@ export class HlsPlaylists {
 
   async read(source: string, installation: string, origin: string): Promise<string> {
     const deadline = Date.now() + 8000;
-    const response = await this.fetcher(source, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] }, signal: AbortSignal.timeout(8000) });
-    if (!response.ok) { await response.body?.cancel(); throw new Error(`Playlist HTTP ${response.status}`); }
-    const body = await readLimited(response, 1024 * 1024);
-    const base = response.url || source;
+    const { body, base } = await this.fetchPlaylist(source, deadline);
     const detected = await this.detectClockBreaks(body, base, deadline);
     return rewritePlaylist(body, base, child => this.url(child, installation, origin), detected);
+  }
+
+  private async fetchPlaylist(source: string, deadline: number, retry = true): Promise<{ body: string; base: string }> {
+    try {
+      const response = await this.fetcher(source, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] },
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+      if (!response.ok) { await response.body?.cancel(); throw new Error(`Playlist HTTP ${response.status}`); }
+      return { body: await readLimited(response, 1024 * 1024), base: response.url || source };
+    } catch (error) {
+      const transient = error instanceof TypeError && ["fetch failed", "terminated"].includes(error.message) ||
+        error instanceof Error && /^Playlist HTTP 5\d{2}$/.test(error.message);
+      if (retry && transient && Date.now() < deadline) return this.fetchPlaylist(source, deadline, false);
+      throw error;
+    }
   }
 
   private async detectClockBreaks(body: string, source: string, deadline: number): Promise<Set<number>> {
@@ -119,8 +130,10 @@ export class HlsPlaylists {
       const before = lines.slice(0, block.start - Number(block.marked)).reverse().find(line => !line.startsWith("#"));
       const after = lines.slice(block.end + 1).find(line => !line.startsWith("#"));
       if (!before || !after) return;
-      const [previous, first, last, next] = await Promise.all([before, block.segments[0], block.segments.at(-1)!, after].map(clock));
-      if (previous && first && last && next && first.start >= 0 && first.start <= 2 && last.end < previous.end &&
+      const first = await clock(block.segments[0]);
+      if (!first || !(first.start >= 0 && first.start <= 2)) return;
+      const [previous, last, next] = await Promise.all([before, block.segments.at(-1)!, after].map(clock));
+      if (previous && last && next && last.end < previous.end &&
         Math.abs(last.end - first.start - block.duration) <= 0.1 && Math.abs(next.start - previous.end) <= 0.1) detected.add(block.start);
     }));
     return detected;

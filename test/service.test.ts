@@ -171,6 +171,41 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   }
 });
 
+test("all providers recover a transient playlist failure before redirecting to the CDN", async () => {
+  const fixture = fixtures([drama()], 5);
+  const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
+  const attempts = new Map<string, number>();
+  const fetcher: typeof fetch = async input => {
+    const url = String(input), count = (attempts.get(url) || 0) + 1;
+    attempts.set(url, count);
+    if (count === 1) return new Response("Temporary CDN failure", { status: 503 });
+    return new Response(["#EXTM3U", "#EXT-X-TARGETDURATION:7", "#EXTINF:4,", "before.ts",
+      "# ppvod-ad-injected v1", "#EXT-X-DISCONTINUITY", "#EXTINF:4,", "/ad/clip.ts",
+      "#EXT-X-DISCONTINUITY", "#EXTINF:4,", "after.ts", "#EXT-X-ENDLIST"].join("\n"));
+  };
+  const installations = await installationFixture().open();
+  const id = await installations.save("0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher)).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const { streams } = await (await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`)).json();
+    assert.equal(streams.length, 5);
+    for (const stream of streams) {
+      const response = await fetch(stream.url, { redirect: "manual" });
+      assert.equal(response.status, 200, "A recovered CDN request must stay on repaired playback");
+      assert.equal(response.headers.get("x-mist-hls-repair"), null);
+      const body = await response.text();
+      assert.ok(!body.includes("/ad/clip.ts"));
+      assert.ok(body.includes("before.ts") && body.includes("after.ts"));
+    }
+    assert.equal(attempts.size, 5);
+    assert.ok([...attempts.values()].every(count => count === 2));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 test("all providers report why repair was bypassed when redirecting playback to a rejecting CDN", async t => {
   const warnings: unknown[][] = [];
   t.mock.method(console, "warn", (...args: unknown[]) => { warnings.push(args); });

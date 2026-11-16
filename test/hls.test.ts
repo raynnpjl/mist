@@ -128,6 +128,33 @@ test("unlabelled inserted clips are detected from their independent clock and co
   assert.match(await unavailable.read(base, "a".repeat(48), "https://mist.example"), /clip-a\.ts/);
 });
 
+test("ordinary scene boundaries do not exhaust the budget before a later inserted ad", async t => {
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  const scenes = Array.from({ length: 20 }, (_unused, i) =>
+    ["first", "middle", "last"].map(part => `scene-${i}-${part}.ts`));
+  const body = ["#EXTM3U", "#EXT-X-TARGETDURATION:8", "#EXTINF:4,", "before.ts",
+    ...scenes.flatMap(uris => ["#EXT-X-DISCONTINUITY", ...uris.flatMap(uri => ["#EXTINF:4,", uri])]),
+    "#EXT-X-DISCONTINUITY", "#EXTINF:5.5,", "ad-first.ts", "#EXTINF:2.5,", "ad-last.ts",
+    "#EXT-X-DISCONTINUITY", "#EXTINF:4,", "after.ts", "#EXT-X-ENDLIST"].join("\n");
+  const probed: string[] = [];
+  const playlists = new HlsPlaylists("01".repeat(32), async () => new Response(body), async url => {
+    const name = new URL(url).pathname.split("/").at(-1)!;
+    probed.push(name);
+    now += 250;
+    if (name === "ad-first.ts") return { start: 1.4, end: 6.9 };
+    if (name === "ad-last.ts") return { start: 6.9, end: 9.4 };
+    if (name === "after.ts") return { start: 344, end: 348 };
+    const scene = name.match(/scene-(\d+)-(first|middle|last)/);
+    const start = scene ? 104 + Number(scene[1]) * 12 + ["first", "middle", "last"].indexOf(scene[2]) * 4 : 100;
+    return { start, end: start + 4 };
+  });
+  const fixed = await playlists.read(base, "a".repeat(48), "https://mist.example");
+  assert.ok(!fixed.includes("ad-first.ts") && !fixed.includes("ad-last.ts"), "The later verified ad must be removed within the existing budget");
+  for (const uri of ["before.ts", ...scenes.flat(), "after.ts"]) assert.ok(fixed.includes(uri));
+  assert.ok(probed.length <= 24, "Reject ordinary scenes before downloading their surrounding segments");
+});
+
 test("clock detection shares repeated segment probes and bounds concurrent work", async () => {
   const clocks: Record<string, { start: number; end: number }> = {
     "00074.ts": { start: 294.64, end: 301.32 }, "00075.ts": { start: 301.32, end: 304.84 },
@@ -146,7 +173,7 @@ test("clock detection shares repeated segment probes and bounds concurrent work"
   const pending = playlists.read(base, "a".repeat(48), "https://mist.example");
   try {
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(active, 4);
+    assert.equal(active, 2, "Shared ad and intervening program clocks are checked before surrounding segments");
   } finally { release(); }
   assert.ok(!/\/ad\//.test(await pending));
   assert.equal(peak, 4);
@@ -170,15 +197,48 @@ test("protected playlists and an exhausted playback deadline never start segment
   assert.equal(probes, 0);
 });
 
+test("transient playlist network and server failures get one retry without bypassing repair", async () => {
+  for (const failure of ["network", "server"]) {
+    let requests = 0;
+    const playlists = new HlsPlaylists("01".repeat(32), async () => {
+      if (++requests === 1) {
+        if (failure === "network") throw new TypeError("fetch failed");
+        return new Response("Temporarily unavailable", { status: 503 });
+      }
+      return new Response(original);
+    });
+    assert.ok(!(await playlists.read(base, "a".repeat(48), "https://mist.example")).includes("/ad/"));
+    assert.equal(requests, 2);
+  }
+});
+
+test("retries do not repeat access rejections or an exhausted inspection budget", async t => {
+  for (const status of [403, 404]) {
+    let requests = 0;
+    const playlists = new HlsPlaylists("01".repeat(32), async () => {
+      requests++; return new Response("Rejected", { status });
+    });
+    await assert.rejects(playlists.read(base, "a".repeat(48), "https://mist.example"), new RegExp(`HTTP ${status}`));
+    assert.equal(requests, 1);
+  }
+  let now = 1000, requests = 0;
+  t.mock.method(Date, "now", () => now);
+  const playlists = new HlsPlaylists("01".repeat(32), async () => {
+    requests++; now += 8000; throw new TypeError("fetch failed");
+  });
+  await assert.rejects(playlists.read(base, "a".repeat(48), "https://mist.example"), /fetch failed/);
+  assert.equal(requests, 1);
+});
+
 test("every playlist read fetches fresh content, honors redirect bases and can recover after upstream failures", async () => {
   let requests = 0;
   const playlists = new HlsPlaylists("01".repeat(32), async (_input, options) => {
     requests++;
     assert.equal((options?.headers as Record<string, string>)["User-Agent"], "Mozilla/5.0");
     assert.ok(options?.signal instanceof AbortSignal);
-    if (requests === 1) return new Response("offline", { status: 503 });
-    if (requests === 2) return new Response("not HLS");
-    const response = new Response(requests === 3 ? original : original.replace("00075.ts", "updated.ts"));
+    if (requests <= 2) return new Response("offline", { status: 503 });
+    if (requests === 3) return new Response("not HLS");
+    const response = new Response(requests === 4 ? original : original.replace("00075.ts", "updated.ts"));
     Object.defineProperty(response, "url", { value: "https://cdn.example/redirected/index.m3u8" });
     return response;
   });
@@ -187,5 +247,5 @@ test("every playlist read fetches fresh content, honors redirect bases and can r
   await assert.rejects(read(), /HLS playlist/);
   assert.match(await read(), /https:\/\/cdn.example\/redirected\/00075\.ts/);
   assert.match(await read(), /https:\/\/cdn.example\/redirected\/updated\.ts/);
-  assert.equal(requests, 4);
+  assert.equal(requests, 5);
 });
