@@ -101,7 +101,7 @@ export class MkvDrama {
   private pool = new Pool(2);
   private retryAt = 0;
   private state: { lastSuccess?: string; lastError?: string } = {};
-  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 15_000) {}
+  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 30_000) {}
 
   status() { return { ...MKVDRAMA_SOURCE, ...this.state }; }
 
