@@ -65,7 +65,8 @@ export class Installations {
   }
 
   async saveSettings(id: string, settings: Settings): Promise<void> {
-    if (!installationId.test(id) || !parseSettings(settings)) throw new Error("Invalid installation preferences");
-    await this.request(["HSET", `mist:installation:${id}`, "preferences", JSON.stringify(settings)]);
+    const parsed = parseSettings(settings);
+    if (!installationId.test(id) || !parsed) throw new Error("Invalid installation preferences");
+    await this.request(["HSET", `mist:installation:${id}`, "preferences", JSON.stringify(parsed)]);
   }
 }

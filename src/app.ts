@@ -6,10 +6,10 @@ import { installationId, Installations } from "./installations.js";
 import { STREAM_SOURCES } from "./providers.js";
 import { AddonService, StreamProvider } from "./service.js";
 import { HlsPlaylists } from "./hls.js";
-import { defaultSettings, parseSettings, Settings } from "./settings.js";
+import { defaultSettings, parseSettings, RESOLUTIONS, Settings } from "./settings.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.2.2", name: "Mist",
+  id: "org.mist.chinese", version: "1.3.0", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
@@ -71,7 +71,7 @@ export function createApp(installations: Installations, createService: (key: str
       const installation = await installations.get(id);
       if (!installation) { res.status(404).json({ error: "Installation not found" }); return; }
       res.json({ installation: id, manifestPath: `/${id}/manifest.json`, settings: installation.settings,
-        providers: STREAM_SOURCES.map(source => ({ id: source.id, name: source.name })) });
+        providers: STREAM_SOURCES.map(source => ({ id: source.id, name: source.name })), resolutions: RESOLUTIONS });
     } catch (error) { next(error); }
   });
 
@@ -80,7 +80,7 @@ export function createApp(installations: Installations, createService: (key: str
       const id = req.params.installation;
       if (!await installations.get(id)) { res.status(404).json({ error: "Installation not found" }); return; }
       const settings = parseSettings(req.body);
-      if (!settings) { res.status(400).json({ error: "Select at least one valid source and a lookup time from 1 to 10 seconds" }); return; }
+      if (!settings) { res.status(400).json({ error: "Select at least one valid source and resolution, and a lookup time from 1 to 10 seconds" }); return; }
       await installations.saveSettings(id, settings);
       res.json({ settings });
     } catch (error) { next(error); }

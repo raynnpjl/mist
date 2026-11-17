@@ -45,17 +45,22 @@ async function api(path, options = {}) {
 function renderSources() {
   $('source-grid').innerHTML = state.config.providers.map(source => {
     const selected = state.draft.sources.includes(source.id);
-    return `<label class="source-card${selected ? ' selected' : ''}" for="source-${escape(source.id)}">
-      <span class="source-text"><strong>${escape(source.name)}</strong></span>
+    return `<label class="source-option" for="source-${escape(source.id)}">
+      <span class="source-text"><strong>${escape(source.name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</span>
       <span class="switch"><input id="source-${escape(source.id)}" data-source="${escape(source.id)}" type="checkbox" role="switch" aria-label="Use ${escape(source.name)}" ${selected ? 'checked' : ''}><span class="switch-track"></span></span>
+    </label>`;
+  }).join('');
+  $('resolution-options').innerHTML = state.config.resolutions.map(resolution => {
+    return `<label class="resolution-option">
+      <input type="checkbox" name="resolution" value="${escape(resolution)}" ${state.draft.resolutions.includes(resolution) ? 'checked' : ''}>
+      <span>${resolution === 'unknown' ? 'Unknown' : `${resolution}p`}</span>
     </label>`;
   }).join('');
   renderSelection();
 }
 
 function renderSelection() {
-  $('selection-count').textContent = `${state.draft.sources.length} of ${state.config.providers.length} selected`;
-  document.querySelectorAll('.source-card').forEach(card => card.classList.toggle('selected', card.querySelector('input').checked));
+  $('selection-count').textContent = `${state.draft.sources.length} enabled`;
   renderSaveBar();
 }
 
@@ -88,12 +93,14 @@ function renderSaveBar() {
   if (!state.config) return;
   const saved = state.config.settings;
   const dirty = saved.inspectionTimeoutMs !== state.draft.inspectionTimeoutMs ||
-    saved.sources.length !== state.draft.sources.length || saved.sources.some(id => !state.draft.sources.includes(id));
+    saved.sources.length !== state.draft.sources.length || saved.sources.some(id => !state.draft.sources.includes(id)) ||
+    saved.resolutions.length !== state.draft.resolutions.length || saved.resolutions.some(resolution => !state.draft.resolutions.includes(resolution));
   $('save-bar').hidden = !dirty;
-  $('save-settings').disabled = state.saving || !state.draft.sources.length;
+  $('save-settings').disabled = state.saving || !state.draft.sources.length || !state.draft.resolutions.length;
   $('discard').disabled = state.saving;
-  document.querySelectorAll('#source-grid input, #lookup-time, [data-time], #select-all').forEach(control => { control.disabled = state.saving; });
-  $('save-hint').textContent = state.draft.sources.length ? 'Applies to your current installation.' : 'Select at least one source to continue.';
+  document.querySelectorAll('#source-grid input, #resolution-options input, #lookup-time, [data-time], #select-all').forEach(control => { control.disabled = state.saving; });
+  $('save-hint').textContent = !state.draft.sources.length ? 'Select at least one source to continue.' :
+    !state.draft.resolutions.length ? 'Select at least one resolution to continue.' : 'Applies to your current installation.';
 }
 
 function showWorkspace() {
@@ -244,6 +251,10 @@ $('key-form').addEventListener('submit', async event => {
 
 $('source-grid').addEventListener('change', () => {
   state.draft.sources = [...$('source-grid').querySelectorAll('input:checked')].map(input => input.dataset.source);
+  renderSelection();
+});
+$('resolution-options').addEventListener('change', () => {
+  state.draft.resolutions = [...$('resolution-options').querySelectorAll('input:checked')].map(input => input.value === 'unknown' ? 'unknown' : Number(input.value));
   renderSelection();
 });
 $('select-all').addEventListener('click', () => {

@@ -1,26 +1,47 @@
 import { createDecipheriv, createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { load } from "cheerio";
-import { Impit } from "impit";
 import { Cache, Pool, readLimited } from "./cache.js";
 import type { Title, VideoRequest } from "./metadata.js";
 import { normalized, webUrl } from "./model.js";
 import type { Fetcher } from "./providers.js";
+import { resolveOuo } from "./ouo.js";
+import { MKVDRAMA_HOSTS, fileHost, hostLabel, resolveSend } from "./filehosts.js";
 
 export const MKVDRAMA_SOURCE = { id: "mkvdrama", name: "MKVDrama" };
-export interface MkvFile { url: string; filename: string; size?: number; height?: number }
+export interface MkvFile { url: string; filename: string; size?: number; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
 interface Lookup { signal: AbortSignal; remaining: number; cookies: Map<string, string> }
 const ORIGIN = "https://mkvdrama.net";
-const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com"]);
+const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com", "send.now"]);
+const HOSTS = new Set(MKVDRAMA_HOSTS.map(host => host.id));
 
 function pageFetcher(): Fetcher {
-  const client = new Impit({ browser: "chrome" });
   return async (input, options) => {
-    const response = await client.fetch(input, { method: options?.method === "POST" ? "POST" : "GET",
-      headers: new Headers(options?.headers), body: options?.body == null ? undefined : String(options.body),
-      signal: options?.signal || undefined, redirect: "manual" });
-    return new Response([204, 205, 304].includes(response.status) ? null : response.body,
-      { status: response.status, statusText: response.statusText, headers: response.headers });
+    const { Session } = await import("impers");
+    options?.signal?.throwIfAborted();
+    // Lookup cookies are managed by read(); never share a native client's cookie jar between lookups.
+    const client = new Session({ impersonate: "chrome", allowRedirects: false });
+    const limit = new AbortController();
+    const signal = options?.signal ? AbortSignal.any([options.signal, limit.signal]) : limit.signal;
+    const chunks: Buffer[] = [];
+    let size = 0;
+    try {
+      const response = await client.request(options?.method === "POST" ? "POST" : "GET", String(input), {
+        headers: Object.fromEntries(new Headers(options?.headers)),
+        content: options?.body == null ? undefined : String(options.body), signal, stream: true,
+        headerCallback(chunk) {
+          if (/^content-type:\s*(video|audio)\//im.test(chunk.toString())) limit.abort(new Error("Download page returned media instead of links"));
+        },
+        contentCallback(chunk) {
+          size += chunk.length;
+          if (size > 1024 * 1024) limit.abort(new Error("Response exceeded size limit"));
+          else chunks.push(chunk);
+        }
+      });
+      return new Response([204, 205, 304].includes(response.status) ? null : Buffer.concat(chunks),
+        { status: response.status, statusText: response.statusText, headers: [...response.headers] });
+    } catch (error) { signal.throwIfAborted(); throw error; }
+    finally { await client.close(); }
   };
 }
 
@@ -53,26 +74,30 @@ function wanted(filename: string, request: VideoRequest, season: number): boolea
 
 function file(url: string, filename: string, request: VideoRequest, season: number, quality: string, size?: number): MkvFile[] {
   if (!wanted(filename, request, season)) return [];
-  const height = Number((filename + " " + quality).match(/\b(2160|1440|1080|720|540|480)p/i)?.[1]) || undefined;
-  return [{ url, filename, height, ...(Number.isSafeInteger(size) && size! > 0 ? { size } : {}) }];
+  const height = Number((filename + " " + quality).match(/\b(2160|1440|1080|720|540|480|360)p/i)?.[1]) || undefined;
+  return [{ url, filename, height, host: hostLabel(url), ...(Number.isSafeInteger(size) && size! > 0 ? { size } : {}) }];
 }
 
 export class MkvDrama {
   readonly source = { ...MKVDRAMA_SOURCE, url: ORIGIN };
   private cache = new Cache<MkvFile[]>(128);
   private checks = new Cache<{ available: boolean; checkedAt: string; responseMs?: number; error?: string }>(1);
+  private redirects = new Cache<string>(128);
   private pool = new Pool(2);
   private retryAt = 0;
   private state: { lastSuccess?: string; lastError?: string } = {};
-  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 8000) {}
+  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 15_000) {}
 
   status() { return { ...MKVDRAMA_SOURCE, ...this.state }; }
 
-  private lookup(): Lookup { return { signal: AbortSignal.timeout(this.timeout), remaining: 32, cookies: new Map() }; }
+  private lookup(): Lookup {
+    return { signal: AbortSignal.timeout(this.timeout), remaining: 32, cookies: new Map() };
+  }
 
   private async read(url: string, lookup: Lookup, init: RequestInit = {}): Promise<{ text: string; redirect?: string }> {
     const target = new URL(url);
-    if (target.protocol !== "https:" || target.port || target.username || target.password || !PAGE_HOSTS.has(target.hostname)) {
+    const verification = target.hostname === "www.google.com" && /^\/recaptcha\/api2\/(anchor|reload)$/.test(target.pathname);
+    if (target.protocol !== "https:" || target.port || target.username || target.password || !PAGE_HOSTS.has(target.hostname) && !verification) {
       throw new Error("Unsupported download page");
     }
     lookup.signal.throwIfAborted();
@@ -199,7 +224,13 @@ export class MkvDrama {
           try { files.push(...await this.resolve(link.url, request, found.season || 1, link.quality, lookup)); }
           catch (error) { errors.push(error); }
         }
-        if (files.length) return [...new Map(files.map(file => [file.url, file])).values()];
+        if (files.length) {
+          const subtitleText = facts.find(fact => /^Subtitles?:/i.test(fact))?.replace(/^Subtitles?:\s*/i, "") ||
+            detail('meta[name="description"]').attr("content")?.match(/with\s+(.{1,100}?)\s+subtitles/i)?.[1];
+          const subtitles = /multi(?:ple|sub)?/i.test(subtitleText || "") ? "Multiple" : subtitleText?.trim();
+          return [...new Map(files.map(file => [file.url, { ...file,
+            ...(file.subtitles || subtitles ? { subtitles: file.subtitles || subtitles } : {}) }])).values()];
+        }
         if (errors.length) throw errors[0];
       }
     }
@@ -207,10 +238,16 @@ export class MkvDrama {
   }
 
   private async resolve(url: string, request: VideoRequest, season: number, quality: string, lookup: Lookup,
-    depth = 0, init: RequestInit = {}): Promise<MkvFile[]> {
+    depth = 0): Promise<MkvFile[]> {
     if (depth >= 8) throw new Error("Too many download redirects");
     const target = new URL(url);
     if (target.protocol !== "https:" || target.username || target.password) return [];
+    const host = fileHost(target.hostname);
+    if (host && !HOSTS.has(host)) return [];
+    if (target.hostname === "send.now") {
+      const result = await resolveSend(url, (url, options) => this.read(url, lookup, options));
+      return file(result.url, result.filename, request, season, quality).map(file => ({ ...file, subtitles: result.subtitles, headers: result.headers }));
+    }
     if (/\.(mkv|mp4)$/i.test(target.pathname)) {
       return file(url, decodeURIComponent(target.pathname.split("/").pop()!), request, season, quality);
     }
@@ -229,27 +266,26 @@ export class MkvDrama {
       const destination = encoded && webUrl(Buffer.from(encoded, "base64").toString("utf8"));
       if (destination) return this.resolve(destination, request, season, quality, lookup, depth + 1);
     }
-    const page = await this.read(url, lookup, init);
+    if (["ouo.io", "ouo.press"].includes(target.hostname)) {
+      const destination = await this.redirects.get(url, 2 * 60_000, () => resolveOuo(url, (url, options) => this.read(url, lookup, options)));
+      return this.resolve(destination, request, season, quality, lookup, depth + 1);
+    }
+    const page = await this.read(url, lookup);
     if (page.redirect) return this.resolve(page.redirect, request, season, quality, lookup, depth + 1);
     const $ = load(page.text);
     if (target.hostname === "viewcrate.cc" && /^\/c\/[a-f0-9]+\/?$/i.test(target.pathname)) {
-      const id = target.pathname.split("/").filter(Boolean).pop();
-      const data = JSON.parse((await this.read(`https://viewcrate.cc/api/cnl_encrypt/${id}`, lookup, { method: "POST" })).text);
-      const key = typeof data.jk === "string" && data.jk.match(/return\s+['"]([a-f0-9]{32})['"]/i)?.[1];
-      if (!key || typeof data.crypted !== "string") throw new Error("Link container not readable");
-      const bytes = Buffer.from(data.crypted, "base64");
-      const decipher = createDecipheriv("aes-128-cbc", Buffer.from(key, "hex"), bytes.subarray(0, 16));
-      decipher.setAutoPadding(false);
-      const links = Buffer.concat([decipher.update(bytes.subarray(16)), decipher.final()]).toString("utf8")
-        .match(/https:\/\/[^\s\x00"'<>]+/g) || [];
-      let pixelLinks = links.filter(link => new URL(link).hostname === "pixeldrain.com");
-      const filenames = [...new Set($("[data-resolve-url] span").toArray().map(element => $(element).text().trim())
-        .filter(name => /\.(mkv|mp4)$/i.test(name)))];
-      // Verify the filename through the host API even when the container supplies an index.
-      if (filenames.length === pixelLinks.length) pixelLinks = pixelLinks.filter((_, index) => wanted(filenames[index], request, season));
+      const base = target.origin + target.pathname.replace(/\/$/, "");
+      const raw = JSON.parse((await this.read(`${base}/bootstrap`, lookup, { headers: { Accept: "application/json", Referer: url } })).text);
+      if (typeof raw.k !== "string" || typeof raw.i !== "string" || typeof raw.c !== "string") throw new Error("Link container not readable");
+      const data = JSON.parse(decryptPayload({ d: raw.c, s: Buffer.from(raw.i, "base64").toString("hex") }, Buffer.from(raw.k, "base64")));
+      if (!Array.isArray(data.d)) throw new Error("Link container file list missing");
+      const links = (data.d as { l?: { n?: string; h?: string; u?: string }[] }[]).flatMap(group => Array.isArray(group.l) ? group.l : [])
+        .filter(link => typeof link.h === "string" && HOSTS.has(fileHost(link.h) || "") && typeof link.n === "string" && typeof link.u === "string" &&
+          /^[a-zA-Z0-9_-]{1,128}$/.test(link.u) && wanted(link.n.replace(/\s+\d+(?:\.\d+)?\s*[KMGT]i?B$/i, ""), request, season));
       const files: MkvFile[] = [], errors: unknown[] = [];
-      for (const link of pixelLinks.slice(0, 100)) {
-        try { files.push(...await this.resolve(link, request, season, quality, lookup, depth + 1)); }
+      for (const link of links.slice(0, 8)) {
+        // The final host metadata must confirm the filename before a URL is returned.
+        try { files.push(...await this.resolve(`${base}/open/${link.u}?privacy=noreferrer`, request, season, quality, lookup, depth + 1)); }
         catch (error) { errors.push(error); }
       }
       if (!files.length && errors.length) throw errors[0];
@@ -258,18 +294,6 @@ export class MkvDrama {
     const refresh = $('meta[http-equiv="refresh" i]').attr("content")?.match(/url\s*=\s*['"]?([^'"]+)$/i)?.[1];
     const redirect = absolute(refresh, url);
     if (redirect) return this.resolve(redirect, request, season, quality, lookup, depth + 1);
-    if (["ouo.io", "ouo.press"].includes(target.hostname)) {
-      if ($("#form-captcha, .g-recaptcha, .cf-turnstile, script[src*='recaptcha']").length) throw new Error("OUO requires CAPTCHA verification");
-      const form = $("#form-go, #form-shorten").first();
-      const action = absolute(form.attr("action"), url);
-      if (action && new URL(action).origin === target.origin && form.attr("method")?.toLowerCase() === "post") {
-        const body = new URLSearchParams();
-        form.find("input[name]").each((_, input) => { body.set($(input).attr("name")!, $(input).attr("value") || ""); });
-        return this.resolve(action, request, season, quality, lookup, depth + 1,
-          { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: url }, body });
-      }
-      throw new Error("OUO destination requires browser verification");
-    }
     const files: MkvFile[] = [];
     for (const element of $("ul.link-list a[href], a#download, a.download, a.external_link").toArray().slice(0, 16)) {
       const link = absolute($(element).attr("href"), url);

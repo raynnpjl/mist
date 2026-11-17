@@ -97,12 +97,21 @@ input::placeholder { color: var(--faint); }
 .install-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .fine-print { font-size: 12px; line-height: 1.6; color: var(--faint); }
 .install-card > .fine-print { margin-top: 18px; }
-.section-toolbar { display: flex; align-items: center; justify-content: space-between; margin: -8px 0 16px; }
-.source-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
-.source-card { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 24px; display: flex; align-items: center; gap: 14px; cursor: pointer; min-width: 0; }
-.source-card.selected { border-color: var(--accent); }
+.source-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.source-group legend { padding: 0; font-size: 17px; font-weight: 600; }
+.sources-toolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.sources-toolbar .text-button { font-size: 12px; }
+.source-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 40px; }
+.source-option { min-width: 0; min-height: 64px; padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; cursor: pointer; }
 .source-text { min-width: 0; }
-.source-text strong { display: block; font-size: 17px; }
+.source-text strong { display: block; font-size: 14px; font-weight: 500; }
+.source-text small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.resolution-group { margin-top: 30px; }
+.resolution-group .caption { margin-top: 8px; line-height: 1.6; }
+.resolution-options { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin-top: 18px; }
+.resolution-option { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 10px 8px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 13px; }
+.resolution-option:has(input:checked) { border-color: var(--accent); background: var(--tint); }
+.resolution-option input { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); }
 .switch { margin-left: auto; position: relative; width: 38px; height: 24px; flex: 0 0 auto; }
 .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .switch-track { display: block; border-radius: 20px; width: 38px; height: 24px; background: var(--line); pointer-events: none; }
@@ -147,6 +156,7 @@ input[type="range"] { width: 100%; margin: 0; accent-color: var(--primary); curs
 .last-checked { color: var(--muted); font-size: 11px; }
 .status-footnote { margin-top: 20px; }
 .save-bar { position: sticky; bottom: 20px; margin-top: 28px; padding: 16px 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; z-index: 3; }
+#view-sources:not([hidden]) ~ .save-bar { position: static; }
 .save-bar strong { display: block; font-size: 13px; }
 .save-bar span { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .save-actions { display: flex; gap: 8px; }
@@ -222,8 +232,9 @@ body:has(.modal[open]) .welcome { visibility: hidden; }
   .summary-card .caption { grid-column: 1; }
   .card { padding: 24px 20px; }
   .section-heading h2, .settings-card h2 { font-size: 19px; }
-  .source-grid { grid-template-columns: 1fr; gap: 12px; }
-  .source-card { padding: 22px; }
+  .source-grid { grid-template-columns: 1fr; }
+  .resolution-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .resolution-option:last-child { grid-column: 1 / -1; }
   .settings-card { flex-direction: column; align-items: flex-start; gap: 20px; }
   .range-value output { font-size: 28px; }
   .range-value label { font-size: 12px; }

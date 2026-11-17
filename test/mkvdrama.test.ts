@@ -10,6 +10,7 @@ import { MediaInspector } from "../src/media.js";
 import { createApp } from "../src/app.js";
 import { HlsPlaylists } from "../src/hls.js";
 import { defaultSettings, parseSettings } from "../src/settings.js";
+import { MkvHeaderInspector } from "../src/mkv-metadata.js";
 import { drama, fixtures, installationFixture } from "./fixtures.js";
 
 const origin = "https://mkvdrama.net";
@@ -39,7 +40,7 @@ function site(pages: Record<string, string | Response>, files: Record<string, { 
     if (new URL(url).hostname === "pixeldrain.com" && id) {
       return files[id] ? Response.json({ success: true, ...files[id] }) : new Response("Missing", { status: 404 });
     }
-    const page = pages[url];
+    const page = pages[`${options?.method || "GET"} ${url}`] || pages[url] || pages[new URL(url).origin + new URL(url).pathname];
     assert.ok(page, `Unexpected request (including any video download): ${url}`);
     return typeof page === "string" ? new Response(page, { headers: { "Content-Type": "text/html" } }) : page.clone();
   };
@@ -55,7 +56,7 @@ test("MKVDrama resolves episode/quality bundles with metadata requests only, pre
       headers: { Location: `https://ouo.io/qs/anything?s=${encodeURIComponent(encoded)}` } })
   }, { episode1: { name: filename.replace("E02", "E01") }, episode2: { name: filename, size: 1_500_000_000 } });
   const result = await fixture.source.streams(title, request);
-  assert.deepEqual(result, [{ url: "https://pixeldrain.com/api/file/episode2", filename, size: 1_500_000_000, height: 1080 }]);
+  assert.deepEqual(result, [{ url: "https://pixeldrain.com/api/file/episode2", filename, size: 1_500_000_000, height: 1080, host: "PixelDrain" }]);
   assert.ok(!fixture.seen.some(item => new URL(item.url).hostname === "ouo.io"), "quick-share destination avoids an OUO fetch");
   const count = fixture.seen.length;
   await fixture.source.streams(title, request);
@@ -68,7 +69,7 @@ test("direct MKV URLs remain untouched and wrong seasons, trailers, archives and
     [`${origin}/search?q=Test+Drama`]: card(),
     [`${origin}/123-test-drama`]: detail([
       correct, `https://cdn.example/${filename.replace("S01", "S02")}`, "https://cdn.example/Test.Drama.E02.Preview.mkv",
-      "https://cdn.example/season.zip", "https://mega.nz/file/abcdef", "https://send.now/abcdef"
+      "https://cdn.example/season.zip", "https://mega.nz/file/abcdef", "https://fileditchvids.st/abcdef"
     ].map(anchor).join(""))
   });
   assert.equal((await fixture.source.streams(title, request))[0].url, correct);
@@ -101,9 +102,9 @@ test("OUO follows same-origin forms with scoped cookies and stops at host URLs b
   const fixture = site({
     [`${origin}/search?q=Test+Drama`]: card(),
     [`${origin}/123-test-drama`]: detail(anchor("https://ouo.press/example")),
-    "https://ouo.press/example": new Response('<form id="form-go" method="POST" action="/go/example"><input name="_token" value="a&amp;b"></form>',
+    "https://ouo.io/example": new Response('<form id="form-go" method="POST" action="/go/example"><input name="_token" value="a&amp;b"></form>',
       { headers: { "Set-Cookie": "session=abc; HttpOnly; Secure" } }),
-    "https://ouo.press/go/example": new Response(null, { status: 303, headers: { Location: "https://pixeldrain.com/u/episode2" } })
+    "https://ouo.io/go/example": new Response(null, { status: 303, headers: { Location: "https://pixeldrain.com/u/episode2" } })
   }, { episode2: { name: filename } });
   assert.equal((await fixture.source.streams(title, request)).length, 1);
   const post = fixture.seen.find(item => item.url.includes("/go/example"))!;
@@ -113,18 +114,56 @@ test("OUO follows same-origin forms with scoped cookies and stops at host URLs b
   assert.equal(new Headers(fixture.seen.at(-1)?.options?.headers).get("Cookie"), null);
 });
 
-test("ViewCrate containers resolve only the requested file and verify episode names against Pixeldrain", async () => {
-  const key = Buffer.from("01".repeat(16), "hex"), iv = Buffer.from("02".repeat(16), "hex");
-  const cipher = createCipheriv("aes-128-cbc", key, iv);
-  const crypted = Buffer.concat([iv, cipher.update("https://pixeldrain.com/u/episode1\nhttps://pixeldrain.com/u/episode2\n"), cipher.final()]).toString("base64");
+test("OUO verification resolves both form stages to a direct host URL without executing page scripts", async () => {
+  const fixture = site({
+    [`${origin}/search?q=Test+Drama`]: card(),
+    [`${origin}/123-test-drama`]: detail(anchor("https://ouo.io/example")),
+    "https://ouo.io/example": new Response('<form id="form-captcha" method="POST" action="/go/example"><input name="_token" value="csrf-one"><input name="x-token"><input name="v-token" value="vm"></form><div class="cf-turnstile" data-sitekey="test"></div>',
+      { headers: { "Set-Cookie": "ouo_session=first; Secure" } }),
+    "https://ouo.io/go/example": new Response('<form id="form-go" method="POST" action="/xreallcygo/example"><input name="_token" value="csrf-two"><input name="x-token"></form>',
+      { headers: { "Set-Cookie": "ouo_session=second; Secure" } }),
+    "https://ouo.io/xreallcygo/example": new Response(null, { status: 302, headers: { Location: "https://pixeldrain.com/u/episode2" } }),
+    "https://www.google.com/recaptcha/api2/anchor": '<input id="recaptcha-token" value="bootstrap-token">',
+    "https://www.google.com/recaptcha/api2/reload": ')]}\'\n["rresp","verification-token",null]'
+  }, { episode2: { name: filename } });
+  const lookupTitle = { ...title, names: ["Test Drama"] };
+  assert.equal((await fixture.source.streams(lookupTitle, request))[0].url, "https://pixeldrain.com/api/file/episode2");
+  const posts = fixture.seen.filter(item => item.options?.method === "POST" && new URL(item.url).hostname === "ouo.io");
+  assert.equal(posts.length, 2);
+  assert.deepEqual([...new URLSearchParams(String(posts[0].options?.body))],
+    [["_token", "csrf-one"], ["x-token", "verification-token"], ["v-token", "vm"]]);
+  assert.equal(new URLSearchParams(String(posts[1].options?.body)).get("_token"), "csrf-two");
+  assert.equal(new Headers(posts[1].options?.headers).get("Cookie"), "ouo_session=second");
+  const google = fixture.seen.filter(item => new URL(item.url).hostname === "www.google.com");
+  assert.equal(google.length, 4, "each form stage receives a fresh verification token");
+  assert.ok(google.every(item => !new Headers(item.options?.headers).has("Cookie")), "OUO cookies must stay on OUO");
+  assert.deepEqual(await fixture.source.streams(lookupTitle, { ...request, episode: 3 }), []);
+  assert.equal(fixture.seen.filter(item => new URL(item.url).hostname === "www.google.com").length, 4,
+    "another episode reuses the resolved bundle destination without repeating OUO verification");
+});
+
+test("ViewCrate's encrypted file list selects the requested episode before resolving and verifying its host URL", async () => {
+  const key = Buffer.from("01".repeat(32), "hex");
+  const payload = encrypted(JSON.stringify({ d: [
+    { t: "S01E01", l: [{ n: filename.replace("E02", "E01"), h: "pixeldrain.com", u: "first" }] },
+    { t: "S01E02", l: [{ n: `${filename} 1.25 GB`, h: "pixeldrain.com", u: "second" },
+      { n: filename, h: "fileditchvids.st", u: "unsupported" }] }
+  ] }), key);
   const fixture = site({
     [`${origin}/search?q=Test+Drama`]: card(),
     [`${origin}/123-test-drama`]: detail(anchor("https://viewcrate.cc/c/abcdef")),
-    "https://viewcrate.cc/c/abcdef": `<main><div data-resolve-url="/c/abcdef/resolve-link"><span>${filename.replace("E02", "E01")}</span><span>${filename}</span></div></main>`,
-    "https://viewcrate.cc/api/cnl_encrypt/abcdef": Response.json({ crypted, jk: `function f(){ return '${key.toString("hex")}'; }` })
+    "https://viewcrate.cc/c/abcdef": '<main data-bootstrap-url="/c/abcdef/bootstrap">Loading...</main>',
+    "https://viewcrate.cc/c/abcdef/bootstrap": Response.json({ k: key.toString("base64"), i: Buffer.from(payload.s, "hex").toString("base64"), c: payload.d }),
+    "https://viewcrate.cc/c/abcdef/open/second?privacy=noreferrer": new Response(null, { status: 307, headers: { Location: "/get/ticket" } }),
+    "https://viewcrate.cc/get/ticket": new Response(null, { status: 307, headers: { Location: "https://pixeldrain.com/u/episode2" } })
   }, { episode2: { name: filename } });
-  assert.equal((await fixture.source.streams(title, request))[0].filename, filename);
-  assert.ok(!fixture.seen.some(item => item.url.endsWith("/episode1/info")), "unrequested episode metadata is skipped");
+  const lookupTitle = { ...title, names: ["Test Drama"] };
+  assert.equal((await fixture.source.streams(lookupTitle, request))[0].filename, filename);
+  assert.ok(!fixture.seen.some(item => item.url.includes("/open/first") || item.url.includes("/open/unsupported")), "only the requested file on a supported host is resolved");
+  assert.ok(fixture.seen.some(item => item.url.endsWith("/episode2/info")), "the host filename must confirm the selected episode");
+  const wrongEpisode = new MkvDrama((input, options) => String(input).endsWith("/episode2/info")
+    ? Promise.resolve(Response.json({ name: filename.replace("E02", "E01") })) : fixture.fetcher(input, options));
+  assert.deepEqual(await wrongEpisode.streams(lookupTitle, request), [], "a misleading container label must not return the wrong episode");
 });
 
 test("matching rejects remakes and wrong types before following download links", async () => {
@@ -154,7 +193,7 @@ test("separate later-season listings use that season's year and exact file episo
   assert.equal((await fixture.source.streams(title, { ...request, season: 2 }, 2025))[0].filename, filename.replace("S01", "S02"));
 });
 
-test("Cloudflare and OUO verification failures produce useful status without executing webpage scripts", async () => {
+test("Cloudflare and malformed OUO forms produce useful errors without executing webpage scripts", async () => {
   const blocked = new MkvDrama(async () => new Response("Challenge", { status: 403 }));
   assert.equal((await blocked.check()).available, false);
   assert.match((await blocked.check()).error!, /403/);
@@ -165,7 +204,7 @@ test("Cloudflare and OUO verification failures produce useful status without exe
     [`${origin}/123-test-drama`]: detail(anchor("https://ouo.io/example")),
     "https://ouo.io/example": '<form id="form-captcha"><input name="x-token"></form><script>throw new Error("must not execute")</script>'
   });
-  await assert.rejects(fixture.source.streams(title, request), /CAPTCHA/);
+  await assert.rejects(fixture.source.streams(title, request), /verification form missing/);
 });
 
 test("unsafe redirect targets and loops cannot fetch arbitrary services or consume unbounded requests", async () => {
@@ -190,36 +229,69 @@ test("one shared deadline aborts slow page requests", async () => {
   finally { clearTimeout(keepAlive); }
 });
 
-test("addon HTTP route returns original host URLs and never probes, caches or relays MKV bytes", async t => {
+test("addon HTTP route returns direct URLs with capped header metadata and preserves playback headers", async t => {
   const fixture = site({ [`${origin}/search?q=Test+Drama`]: card(),
-    [`${origin}/123-test-drama`]: detail(anchor("https://pixeldrain.com/u/episode2")) }, { episode2: { name: filename, size: 12345 } });
+    [`${origin}/123-test-drama`]: '<meta name="description" content="Two school rivals grow closer.">' +
+      detail(anchor("https://pixeldrain.com/u/episode2") + anchor("https://send.now/second")),
+    "https://send.now/second": `<main id="fv" data-name="${filename}"></main>
+      <script id="xvp-config" type="application/json">${JSON.stringify({ sources: [{ src: `https://d1.datatransfer.to/d/player-signed/${filename}` }] })}</script>
+      <video><track kind="captions" label="English"><track kind="captions" label="Japanese"></video>`
+  }, { episode2: { name: filename, size: 1_000_000 } });
   const vod = fixtures([drama(1, { vod_name: "测试剧" })], 1);
+  const headerRequests: { url: string; headers: Headers }[] = [];
   const fetcher: typeof fetch = async (input, options) => {
     const url = new URL(String(input));
+    const headers = new Headers(options?.headers);
+    if (headers.has("Range")) {
+      headerRequests.push({ url: url.href, headers });
+      assert.equal(headers.get("Range"), "bytes=0-131071");
+      assert.equal(options?.redirect, "manual");
+      return new Response(Buffer.from("1a45dfa300000000", "hex"), { status: 206, headers: { "Content-Range": "bytes 0-7/1000000" } });
+    }
     if (url.hostname === "api.themoviedb.org" && url.searchParams.get("language") === "en-US") return Response.json({ name: "Test Drama" });
     if (url.hostname === "api.themoviedb.org") return vod.fetcher(input, options);
     return fixture.fetcher(input, options);
   };
   const source = new MkvDrama(fetcher), redis = installationFixture(), store = await redis.open();
+  const headerInspector = new MkvHeaderInspector(fetcher, async () => ({ format: { duration: "4" }, streams: [
+    { codec_type: "subtitle", tags: { language: "eng" } }, { codec_type: "subtitle", tags: { language: "chi" } }
+  ] }));
   const id = await store.save("01".repeat(16));
   await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"] });
   const factory = (key: string, settings: ReturnType<typeof defaultSettings>) => new AddonService(
     settings.sources.includes("mkvdrama") ? [source] : [], new MetadataResolver(fetcher, key), fetcher,
-    new MediaInspector(fetcher, async () => { assert.fail("MKVDrama must not invoke FFprobe"); }));
+    new MediaInspector(fetcher, async () => { assert.fail("MKVDrama must not invoke an unbounded URL probe"); }), settings.resolutions, headerInspector);
   const server = createApp(store, factory, [source], new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const response = await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`);
   const { streams } = await response.json();
-  assert.equal(streams.length, 1);
+  assert.equal(streams.length, 2);
   assert.equal(streams[0].url, "https://pixeldrain.com/api/file/episode2");
-  assert.deepEqual(streams[0].behaviorHints, { notWebReady: true, filename, videoSize: 12345, bingeGroup: "mist:mkvdrama:direct:1080" });
+  assert.deepEqual(streams[0].behaviorHints, { notWebReady: true, filename, videoSize: 1_000_000, bingeGroup: "mist:mkvdrama:direct:PixelDrain:1080" });
   assert.equal(streams[0].name, "1080P");
+  assert.equal(streams[0].description, "Test Drama 测试剧 S01E02\nBitrate: 2 Mbps\nLanguage: Chinese\nSubtitle: Multiple\nMKVDrama · PixelDrain");
+  assert.equal(headerRequests.length, 2);
+  const send = streams.filter((stream: { description: string }) => stream.description.endsWith("MKVDrama · Send"));
+  assert.equal(send.length, 1);
+  assert.ok(send[0].url.startsWith("https://d1.datatransfer.to/d/"));
+  assert.deepEqual(send[0].behaviorHints.proxyHeaders, { request: { Referer: "https://send.now/second" } },
+    "the player needs Send's file-page Referer to open the direct CDN URL");
+  assert.ok(send[0].description.endsWith("Subtitle: Multiple\nMKVDrama · Send"));
+  assert.ok(headerRequests.some(request => request.headers.get("Referer") === "https://send.now/second"));
   const config = await (await fetch(`${base}/api/installations/${id}`)).json();
   assert.ok(config.providers.some(provider => provider.id === "mkvdrama"));
+  assert.equal(Object.hasOwn(config, "mkvdramaHosts"), false);
+  await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"], resolutions: [720] });
+  assert.deepEqual((await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams, []);
+  assert.equal(headerRequests.length, 2, "excluded resolutions must not trigger MKV header reads");
   assert.ok(parseSettings({ ...defaultSettings(), sources: ["mkvdrama"] }));
   assert.ok(defaultSettings().sources.includes("mkvdrama"));
+  await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"] });
+  const repeated = (await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams;
+  assert.ok(repeated[0].description.includes("Bitrate: 2 Mbps\n"));
+  assert.equal(headerRequests.length, 2, "parsed metadata survives service recreation without rereading the file");
   await store.saveSettings(id, { ...defaultSettings(), sources: ["hongniu"] });
   assert.deepEqual((await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams, []);
 });

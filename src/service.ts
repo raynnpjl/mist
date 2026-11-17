@@ -5,27 +5,32 @@ import { Playable, Vod, chineseKind, normalized, value } from "./model.js";
 import { Fetcher, Provider } from "./providers.js";
 import { DirectStream } from "./protocol.js";
 import { MkvDrama } from "./mkvdrama.js";
+import { RESOLUTIONS } from "./settings.js";
+import { MkvHeaderInspector } from "./mkv-metadata.js";
 
 export type StreamProvider = Provider | MkvDrama;
 interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string;
-  filename?: string; videoSize?: number }
+  filename?: string; videoSize?: number; displayName?: string; host?: string; subtitles: string; headers?: Record<string, string>; averageBitrate?: number }
 
 function present(candidate: Candidate, title: Title, request: VideoRequest, info: MediaInfo): DirectStream {
   const quality = info.height ? `${Math.round(info.height)}p` : "Unknown";
   const episode = request.type === "movie" ? "Movie" :
     `S${String(request.season).padStart(2, "0")}E${String(request.episode).padStart(2, "0")}`;
   const mbps = (n: number) => n.toLocaleString("en-US", { maximumSignificantDigits: 3, useGrouping: false });
-  const bitrate = info.bitrate ? `${mbps(info.bitrate / 1_000_000)} Mbps` : "Unavailable";
-  const description = [`${title.displayName} ${episode}`, `Bitrate: ${bitrate}`,
-    `Language: ${candidate.language || "Unknown"}`, `${candidate.source.name}云播`].join("\n");
+  const rate = candidate.averageBitrate || info.bitrate;
+  const bitrate = rate ? `${mbps(rate / 1_000_000)} Mbps` : "Unavailable";
+  const description = [`${candidate.displayName || title.displayName} ${episode}`, `Bitrate: ${bitrate}`,
+    `Language: ${candidate.language || "Unknown"}`, `Subtitle: ${candidate.subtitles}`,
+    candidate.host ? `MKVDrama · ${candidate.host}` : `${candidate.source.name}云播`].join("\n");
   const extension = (candidate.filename || new URL(candidate.url).pathname).match(/\.(mp4|mkv)$/i)?.[1].toLowerCase() || "m3u8";
   const facts = [title.displayName, episode, info.height ? quality : undefined,
     info.width && info.height ? `${info.width}x${info.height}` : undefined, candidate.releaseType, ...codecTags(info), candidate.language];
   const filename = candidate.filename || facts.filter(Boolean).join(" ").replace(/[\\/:*?"<>|\r\n]/g, " ") + `.${extension}`;
   return { name: !candidate.filename && info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P"), description, url: candidate.url,
-    behaviorHints: { notWebReady: extension !== "mp4" || !candidate.url.startsWith("https:"),
+    behaviorHints: { notWebReady: Boolean(candidate.headers) || extension !== "mp4" || !candidate.url.startsWith("https:"),
       bingeGroup: `mist:${candidate.source.id}:${candidate.group}`, filename,
-      ...(candidate.videoSize ? { videoSize: candidate.videoSize } : {}) } };
+      ...(candidate.videoSize ? { videoSize: candidate.videoSize } : {}),
+      ...(candidate.headers ? { proxyHeaders: { request: candidate.headers } } : {}) } };
 }
 
 function chineseOrdinal(number: number): string {
@@ -89,9 +94,15 @@ function catalogPart(name: string): string | undefined {
 
 export class AddonService {
   constructor(readonly providers: StreamProvider[], private metadata: MetadataResolver, fetcher: Fetcher = fetch,
-    private inspector = new MediaInspector(fetcher)) {}
+    private inspector = new MediaInspector(fetcher), private resolutions = RESOLUTIONS,
+    private mkvInspector = new MkvHeaderInspector(fetcher)) {}
 
   authenticate(): Promise<void> { return this.metadata.authenticate(); }
+
+  private allowsResolution(height?: number): boolean {
+    const resolution = height ? RESOLUTIONS.find(value => typeof value === "number" && height <= value) : "unknown";
+    return resolution !== undefined && this.resolutions.includes(resolution);
+  }
 
   private async find(provider: Provider, title: Title, request: VideoRequest, episodeInfo: Promise<EpisodeInfo | undefined>): Promise<Candidate[]> {
     const names = titleNames(title, request);
@@ -110,7 +121,7 @@ export class AddonService {
           if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
             (!collection && value(vod.vod_year) !== String(year)) || !allowed.has(name)) continue;
           const parts = playables(vod, kind).filter(p => selected(p, vod, request, info));
-          for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang),
+          for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang), subtitles: "Chinese",
             url: part.url, group: part.group, releaseType: releaseType(vod) });
         }
         if (streams.length) return streams;
@@ -131,10 +142,16 @@ export class AddonService {
       if (provider instanceof MkvDrama) {
         const [english, episode] = await Promise.all([this.metadata.englishName(title, request).catch(() => undefined), info]);
         const names = [...new Set([...(english ? [english] : []), ...title.names])];
-        return (await provider.streams({ ...title, names }, request, episode?.year)).map(file => ({
-          candidate: { url: file.url, source: provider.source, group: `direct:${file.height || "unknown"}`,
-            language: "Chinese", filename: file.filename, videoSize: file.size },
-          media: { reachable: false, height: file.height } as MediaInfo
+        const files = (await provider.streams({ ...title, names }, request, episode?.year)).filter(file => this.allowsResolution(file.height));
+        return Promise.all(files.map(async file => {
+          const header = await this.mkvInspector.inspect(file);
+          return {
+            candidate: { url: file.url, source: provider.source, group: `direct:${file.host}:${file.height || "unknown"}`,
+              language: "Chinese", filename: file.filename, videoSize: file.size, host: file.host,
+              subtitles: header.subtitles || file.subtitles || "Unknown", averageBitrate: header.averageBitrate, headers: file.headers,
+              displayName: [...new Set([english, title.displayName].filter(Boolean))].join(" ") },
+            media: { reachable: false, height: file.height } as MediaInfo
+          };
         }));
       }
       const candidates = await this.find(provider, title, request, info);
@@ -145,7 +162,7 @@ export class AddonService {
     for (const result of results) if (result.status === "fulfilled") {
       for (const item of result.value) if (!unique.has(item.candidate.url)) unique.set(item.candidate.url, item);
     }
-    const inspected = [...unique.values()].map(({ candidate, media }) => {
+    const inspected = [...unique.values()].filter(({ media }) => this.allowsResolution(media.height)).map(({ candidate, media }) => {
       return { stream: present(candidate, title, request, media),
         rank: Number(media.reachable) * 2 + Number(candidate.url.startsWith("https:")) };
     });

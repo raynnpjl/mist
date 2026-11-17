@@ -7,6 +7,7 @@ import { Installations } from "./installations.js";
 import { HlsPlaylists } from "./hls.js";
 import { MediaInspector, probeMedia } from "./media.js";
 import { MkvDrama } from "./mkvdrama.js";
+import { MkvHeaderInspector } from "./mkv-metadata.js";
 
 const port = Number(process.env.PORT || 7000);
 const timeout = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
@@ -14,10 +15,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT m
 if (!Number.isInteger(timeout) || timeout < 100 || timeout > 30000) throw new Error("UPSTREAM_TIMEOUT_MS must be between 100 and 30000");
 async function main() {
   const installations = await Installations.open();
-  const providers = [...createProviders(loadSources(), fetch, timeout), new MkvDrama(undefined, timeout)];
+  const providers = [...createProviders(loadSources(), fetch, timeout), new MkvDrama()];
+  const mkvHeaders = new MkvHeaderInspector();
   const server = createApp(installations, (key, settings) => new AddonService(
     providers.filter(provider => settings.sources.includes(provider.source.id)), new MetadataResolver(fetch, key, timeout), fetch,
-    new MediaInspector(fetch, probeMedia, settings.inspectionTimeoutMs)), providers, new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!))
+    new MediaInspector(fetch, probeMedia, settings.inspectionTimeoutMs), settings.resolutions, mkvHeaders), providers, new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!))
     .listen(port, process.env.HOST || "0.0.0.0", () => console.log(`Mist setup: http://localhost:${port}/configure`));
   server.requestTimeout = 60_000;
   function shutdown() {

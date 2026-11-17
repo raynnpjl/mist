@@ -17,7 +17,7 @@ test("preferences default to all sources and persist independently of concurrent
   const store = await redis.open();
   const id = await store.save("0123456789abcdef0123456789abcdef");
   assert.deepEqual((await store.get(id))?.settings, defaultSettings());
-  const settings = { sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500 };
+  const settings: Settings = { ...defaultSettings(), sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500, resolutions: [720, 1080] };
   await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
   const reopened = await redis.open();
   assert.deepEqual((await reopened.get(id))?.settings, settings);
@@ -31,7 +31,18 @@ test("preferences reject empty, duplicate or unknown sources and invalid time wi
     { sources: ["hongniu"], inspectionTimeoutMs: 999 }, { sources: ["hongniu"], inspectionTimeoutMs: 10001 },
     { sources: ["hongniu"], inspectionTimeoutMs: 1501 },
     { sources: ["hongniu"], inspectionTimeoutMs: "2000" }]) assert.equal(parseSettings(input), undefined);
-  assert.deepEqual(parseSettings({ sources: ["hongniu"], inspectionTimeoutMs: 1000 }), { sources: ["hongniu"], inspectionTimeoutMs: 1000 });
+  assert.deepEqual(parseSettings({ sources: ["hongniu"], inspectionTimeoutMs: 1000 }),
+    { ...defaultSettings(), sources: ["hongniu"], inspectionTimeoutMs: 1000 });
+});
+
+test("resolution preferences default to all choices and reject empty, duplicate or unsupported choices", () => {
+  const settings = { ...defaultSettings(), sources: ["mkvdrama"] };
+  assert.deepEqual(settings.resolutions, [360, 480, 720, 1080, "unknown"]);
+  for (const resolutions of [[], [720, 720], [1440], [2160], ["720"], "720", null]) {
+    assert.equal(parseSettings({ ...settings, resolutions }), undefined);
+  }
+  assert.deepEqual(parseSettings({ ...settings, resolutions: [720] }), { ...settings, resolutions: [720] });
+  assert.deepEqual(parseSettings({ ...settings, resolutions: ["unknown"] }), { ...settings, resolutions: ["unknown"] });
 });
 
 test("pending status checks do not consume stream-search slots", async () => {
@@ -67,7 +78,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   const factory = (key: string, settings: Settings) => {
     used.push(settings);
     return new AddonService(providers.filter(p => settings.sources.includes(p.source.id)), new MetadataResolver(fetcher, key), fetcher,
-      new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs));
+      new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs), settings.resolutions);
   };
   const replicaStore = await redis.open();
   const server = createApp(store, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
@@ -87,15 +98,18 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.deepEqual(JSON.parse(initial).providers, STREAM_SOURCES.map(({ id, name }) => ({ id, name })),
     "configuration must not expose provider endpoints or hostnames");
   assert.deepEqual(JSON.parse(initial).settings, defaultSettings());
+  assert.deepEqual(JSON.parse(initial).resolutions, [360, 480, 720, 1080, "unknown"]);
+  assert.equal(Object.hasOwn(JSON.parse(initial), "mkvdramaHosts"), false);
   const streamUrl = `${base}/${id}/stream/series/tt26235088:1:1.json`;
   const replicaStreamUrl = `${replicaBase}/${id}/stream/series/tt26235088:1:1.json`;
   assert.equal((await (await fetch(streamUrl)).json()).streams.length, 5);
   assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 5);
   const update = (settings: unknown, origin = base) => fetch(`${endpoint}/settings`, { method: "PUT",
     headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(settings) });
-  const settings = { sources: ["hongniu"], inspectionTimeoutMs: 2000 };
+  const settings = { ...defaultSettings(), sources: ["hongniu"], inspectionTimeoutMs: 2000 };
   assert.equal((await update(settings, "https://unrelated.example")).status, 403);
   assert.equal((await update({ ...settings, sources: [] })).status, 400);
+  assert.equal((await update({ ...settings, resolutions: [] })).status, 400);
   assert.equal((await update(settings)).status, 200);
   assert.deepEqual((await store.get(id))?.settings, settings);
   budgets.length = 0; used.length = 0;
@@ -108,6 +122,9 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   used.length = 0;
   assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 1);
   assert.deepEqual(used, [settings], "another instance must see saved preferences despite its warm cache");
+  assert.equal((await update({ ...settings, resolutions: [720] })).status, 200);
+  assert.deepEqual((await (await fetch(streamUrl)).json()).streams, [], "resolution changes must replace cached stream results");
+  assert.deepEqual((await (await fetch(replicaStreamUrl)).json()).streams, [], "saved resolutions apply on other instances");
   const status = await (await fetch(`${endpoint}/status`)).json();
   assert.equal(status.providers.length, 5);
   assert.equal(status.providers.find(p => p.id === "baofeng").available, false);

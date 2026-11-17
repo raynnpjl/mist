@@ -84,10 +84,19 @@
       </section>
 
       <section class="view" id="view-sources" aria-labelledby="sources-title" hidden>
-        <div class="page-heading"><span class="eyebrow">SOURCES</span><h1 id="sources-title">Choose where Mist looks</h1><p>Select Providers. Every source starts on</p></div>
-        <div class="section-toolbar"><span id="selection-count" class="caption">5 of 5 selected</span><button class="text-button" id="select-all">Select all</button></div>
-        <div class="source-grid" id="source-grid"></div>
-        <div class="info-note"><svg class="icon"><use href="#i-info"/></svg><p>Every source has its own catalog and playback availability. Keeping a few selected gives you more choice for each title.</p></div>
+        <div class="page-heading"><span class="eyebrow">YOUR SETUP</span><h1 id="sources-title">Sources</h1><p>Choose providers and video quality.</p></div>
+        <div class="card sources-settings">
+          <fieldset class="source-group">
+            <legend>Providers</legend>
+            <div class="sources-toolbar"><span id="selection-count" class="caption">6 enabled</span><button class="text-button" id="select-all">Enable all</button></div>
+            <div class="source-grid" id="source-grid"></div>
+          </fieldset>
+          <fieldset class="source-group resolution-group" aria-describedby="resolution-help">
+            <legend>Resolutions</legend>
+            <p class="caption" id="resolution-help">Choose one or more. Unknown includes streams without detected resolution.</p>
+            <div class="resolution-options" id="resolution-options"></div>
+          </fieldset>
+        </div>
       </section>
 
       <section class="view" id="view-preferences" aria-labelledby="preferences-title" hidden>

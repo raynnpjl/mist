@@ -9,6 +9,7 @@ import { Provider } from "../src/providers.js";
 import { Pool } from "../src/cache.js";
 import { MediaInspector } from "../src/media.js";
 import { HlsPlaylists } from "../src/hls.js";
+import type { Resolution } from "../src/settings.js";
 import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
 test("Mist is stream-only and eligible for IMDb and TMDB episodes from existing catalogs", () => {
@@ -34,8 +35,8 @@ test("IMDb and TMDB episodes return Mist sources without any catalog or metadata
     assert.ok(streams.every(s => s.name === "1080P"));
     assert.ok(streams.every(s => {
       const lines = s.description.split("\n");
-      return lines.length === 4 && lines[0] === "狂飙 S01E01" && /^Bitrate: [\d.]+ Mbps$/.test(lines[1]) &&
-        lines[2] === "Language: Chinese" && /^(红牛|天堂)云播$/.test(lines[3]);
+      return lines.length === 5 && lines[0] === "狂飙 S01E01" && /^Bitrate: [\d.]+ Mbps$/.test(lines[1]) &&
+        lines[2] === "Language: Chinese" && lines[3] === "Subtitle: Chinese" && /^(红牛|天堂)云播$/.test(lines[4]);
     }));
     assert.ok(streams.every(s => /1080p 1920x1080 H\.264 AAC 2\.0 Chinese/.test(s.behaviorHints.filename)));
   }
@@ -43,8 +44,8 @@ test("IMDb and TMDB episodes return Mist sources without any catalog or metadata
   assert.ok(second.length && second.every(s => s.url.endsWith("/2.m3u8")));
 });
 
-test("source titles label every height above 720 as 1080P while preserving actual dimensions", async () => {
-  for (const height of [480, 606, 720, 721, 768, 800, 900, 1080, 1440, 2160]) {
+test("HD source titles label heights above 720 as 1080P while preserving actual dimensions", async () => {
+  for (const height of [360, 480, 606, 720, 721, 768, 800, 900, 1080]) {
     const fixture = fixtures([drama()], 1);
     const inspector = new MediaInspector(fixture.fetcher, async () => ({ width: 1920, height }));
     const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
@@ -52,6 +53,20 @@ test("source titles label every height above 720 as 1080P while preserving actua
     assert.equal(streams.length, 1);
     assert.equal(streams[0].name, height > 720 ? "1080P" : `${height}P`, `height ${height}`);
     assert.ok(streams[0].behaviorHints.filename.includes(`${height}p 1920x${height}`));
+  }
+});
+
+test("resolution preferences filter detected streams, group cropped heights, and select unknown separately", async () => {
+  for (const [height, resolutions, count] of [
+    [360, [360], 1], [480, [360], 0], [480, [480], 1], [606, [720], 1],
+    [720, [1080], 0], [800, [1080], 1], [1080, [720, 1080], 1],
+    [1440, [360, 480, 720, 1080, "unknown"], 0], [undefined, [720], 0],
+    [undefined, ["unknown"], 1], [720, ["unknown"], 0]
+  ] as [number | undefined, Resolution[], number][]) {
+    const fixture = fixtures([drama()], 1);
+    const inspector = new MediaInspector(fixture.fetcher, async () => ({ height }));
+    const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector, resolutions);
+    assert.equal((await service.streams("series", "tt26235088:1:1")).length, count, `height ${height}, selections ${resolutions}`);
   }
 });
 
@@ -69,7 +84,7 @@ test("release type stays in badge metadata without a Quality line in the descrip
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
   const streams = await service.streams("series", "tt26235088:1:1");
   assert.equal(streams[0].name, "1080P");
-  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: 2.5 Mbps\nLanguage: Chinese\n红牛云播");
+  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: 2.5 Mbps\nLanguage: Chinese\nSubtitle: Chinese\n红牛云播");
   assert.match(streams[0].behaviorHints.filename, /1080p 1920x1080 WEB-DL H\.264 AAC 2\.0 Chinese/);
 });
 
@@ -79,7 +94,7 @@ test("unavailable quality and bitrate stay explicit without invented badge token
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
   const streams = await service.streams("series", "tt26235088:1:1");
   assert.equal(streams[0].name, "Unknown");
-  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: Unavailable\nLanguage: Chinese\n红牛云播");
+  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: Unavailable\nLanguage: Chinese\nSubtitle: Chinese\n红牛云播");
   assert.ok(!/1080p|WEB-DL|HDR|Atmos/.test(streams[0].behaviorHints.filename));
 });
 
@@ -107,7 +122,7 @@ test("movie IMDb requests return full-film choices with Chinese names and labele
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
   const streams = await service.streams("movie", "tt26235088");
   assert.equal(streams.length, 2);
-  assert.ok(streams.every(s => s.description.startsWith("测试电影 Movie\n") && /\nLanguage: Chinese\n(红牛|天堂)云播$/.test(s.description)));
+  assert.ok(streams.every(s => s.description.startsWith("测试电影 Movie\n") && /\nLanguage: Chinese\nSubtitle: Chinese\n(红牛|天堂)云播$/.test(s.description)));
 });
 
 test("reachable source choices rank first while client alternatives remain available", async () => {
