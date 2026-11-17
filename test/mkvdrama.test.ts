@@ -253,6 +253,7 @@ test("one shared deadline aborts slow page requests", async () => {
 
 test("addon HTTP route returns direct URLs with capped header metadata and preserves playback headers", async t => {
   const fixture = site({ [`${origin}/search?q=Test+Drama`]: card(),
+    [`${origin}/search?${new URLSearchParams({ q: "测试剧" })}`]: '<div class="listupd"></div>',
     [`${origin}/123-test-drama`]: '<meta name="description" content="Two school rivals grow closer.">' +
       detail(anchor("https://pixeldrain.com/u/episode2") + anchor("https://send.now/second")),
     "https://send.now/second": `<main id="fv" data-name="${filename}"></main>
@@ -306,7 +307,10 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   assert.ok(config.providers.some(provider => provider.id === "mkvdrama"));
   assert.equal(Object.hasOwn(config, "mkvdramaHosts"), false);
   await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"], resolutions: [720] });
+  const beforeFiltering = fixture.seen.length;
   assert.deepEqual((await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams, []);
+  assert.ok(fixture.seen.slice(beforeFiltering).every(item => new URL(item.url).hostname === "mkvdrama.net"),
+    "disabled-only bundles must not reach file hosts after preferences change");
   assert.equal(headerRequests.length, 2, "excluded resolutions must not trigger MKV header reads");
   assert.ok(parseSettings({ ...defaultSettings(), sources: ["mkvdrama"] }));
   assert.ok(defaultSettings().sources.includes("mkvdrama"));

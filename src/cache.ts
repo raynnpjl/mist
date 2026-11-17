@@ -2,14 +2,19 @@ export class Cache<T> {
   private entries = new Map<string, { expires: number; pending: Promise<T> }>();
   constructor(private limit: number) {}
 
-  get(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+  delete(key: string): void { this.entries.delete(key); }
+
+  get(key: string, ttl: number | ((value: T) => number), load: () => Promise<T>): Promise<T> {
     const existing = this.entries.get(key);
     if (existing && existing.expires > Date.now()) return existing.pending;
     this.entries.delete(key);
-    const entry = { expires: Date.now() + ttl, pending: Promise.resolve().then(load) };
+    const entry = { expires: Infinity, pending: Promise.resolve().then(load) };
     this.entries.set(key, entry);
     if (this.entries.size > this.limit) this.entries.delete(this.entries.keys().next().value!);
-    entry.pending.catch(() => {
+    entry.pending.then(value => {
+      entry.expires = Date.now() + (typeof ttl === "number" ? ttl : ttl(value));
+      if (entry.expires <= Date.now() && this.entries.get(key) === entry) this.entries.delete(key);
+    }, () => {
       if (this.entries.get(key) === entry) this.entries.delete(key);
     });
     return entry.pending;
@@ -18,16 +23,28 @@ export class Cache<T> {
 
 export class Pool {
   private active = 0;
-  private waiting: (() => void)[] = [];
+  private waiting: { start: () => void; cancel: () => void }[] = [];
   constructor(private limit: number) {}
 
-  async run<T>(work: () => Promise<T>): Promise<T> {
-    if (this.active >= this.limit) await new Promise<void>(resolve => this.waiting.push(resolve));
+  async run<T>(work: () => Promise<T>, signal?: AbortSignal, priority = false): Promise<T> {
+    signal?.throwIfAborted();
+    if (this.active >= this.limit) await new Promise<void>((resolve, reject) => {
+      const entry = {
+        start: () => { signal?.removeEventListener("abort", entry.cancel); resolve(); },
+        cancel: () => {
+          this.waiting.splice(this.waiting.indexOf(entry), 1);
+          reject(signal!.reason);
+        }
+      };
+      if (priority) this.waiting.unshift(entry);
+      else this.waiting.push(entry);
+      signal?.addEventListener("abort", entry.cancel, { once: true });
+    });
     else this.active++;
-    try { return await work(); }
+    try { signal?.throwIfAborted(); return await work(); }
     finally {
       const next = this.waiting.shift();
-      if (next) next();
+      if (next) next.start();
       else this.active--;
     }
   }
