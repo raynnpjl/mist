@@ -257,7 +257,7 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
     [`${origin}/123-test-drama`]: '<meta name="description" content="Two school rivals grow closer.">' +
       detail(anchor("https://pixeldrain.com/u/episode2") + anchor("https://send.now/second")),
     "https://send.now/second": `<main id="fv" data-name="${filename}"></main>
-      <script id="xvp-config" type="application/json">${JSON.stringify({ sources: [{ src: `https://d1.datatransfer.to/d/player-signed/${filename}` }] })}</script>
+      <script id="xvp-config" type="application/json">${JSON.stringify({ sources: [{ src: `https://dl9750.usercdn.com/d/player-signed/${filename}` }] })}</script>
       <video><track kind="captions" label="English"><track kind="captions" label="Japanese"></video>`
   }, { episode2: { name: filename, size: 1_000_000 } });
   const vod = fixtures([drama(1, { vod_name: "测试剧" })], 1);
@@ -298,10 +298,13 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   assert.equal(headerRequests.length, 2);
   const send = streams.filter((stream: { description: string }) => stream.description.endsWith("MKVDrama · Send"));
   assert.equal(send.length, 1);
-  assert.ok(send[0].url.startsWith("https://d1.datatransfer.to/d/"));
+  assert.equal(send[0].url, `https://dl9750.usercdn.com/d/player-signed/${filename}`);
+  assert.equal(send[0].name, "1080P");
+  assert.equal(send[0].behaviorHints.filename, filename);
+  assert.equal(send[0].behaviorHints.bingeGroup, "mist:mkvdrama:direct:Send:1080");
   assert.deepEqual(send[0].behaviorHints.proxyHeaders, { request: { Referer: "https://send.now/second" } },
     "the player needs Send's file-page Referer to open the direct CDN URL");
-  assert.ok(send[0].description.endsWith("Subtitle: Multiple\nMKVDrama · Send"));
+  assert.equal(send[0].description, "Test Drama 测试剧 S01E02\nBitrate: 2 Mbps\nLanguage: Chinese\nSubtitle: Multiple\nMKVDrama · Send");
   assert.ok(headerRequests.some(request => request.headers.get("Referer") === "https://send.now/second"));
   const config = await (await fetch(`${base}/api/installations/${id}`)).json();
   assert.ok(config.providers.some(provider => provider.id === "mkvdrama"));
@@ -320,6 +323,51 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   assert.equal(headerRequests.length, 2, "parsed metadata survives service recreation without rereading the file");
   await store.saveSettings(id, { ...defaultSettings(), sources: ["hongniu"] });
   assert.deepEqual((await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams, []);
+});
+
+test("only MKVDrama searches and displays English then native titles, with aliases kept as fallback", async () => {
+  for (const example of [
+    { english: "Test Drama", native: "原始剧名", display: "Test Drama 原始剧名", searches: ["Test Drama", "原始剧名"], vodDisplay: "原始剧名" },
+    { english: "Test Drama", native: "더 글로리", display: "Test Drama 더 글로리", searches: ["Test Drama", "더 글로리"], vodDisplay: "中文译名" },
+    { english: "Test Drama", native: "アンナチュラル", display: "Test Drama アンナチュラル", searches: ["Test Drama", "アンナチュラル"], vodDisplay: "中文译名" },
+    { english: "TEST DRAMA!", native: "Test Drama", display: "TEST DRAMA!", searches: ["TEST DRAMA!"], vodDisplay: "中文译名" },
+    { english: undefined, native: "原始剧名", display: "原始剧名", searches: ["原始剧名"], vodDisplay: "原始剧名" },
+    { english: "Test Drama", native: undefined, display: "Test Drama", searches: ["Test Drama"], vodDisplay: "中文译名" },
+    { english: "Test Drama", native: "原始剧名", display: "Test Drama 原始剧名", searches: ["Test Drama", "原始剧名", "中文译名"], vodDisplay: "原始剧名" }
+  ]) {
+    const localized = "中文译名";
+    const matched = example.searches.at(-1)!;
+    const pages: Record<string, string> = { [`${origin}/123-test-drama`]: detail(anchor("https://pixeldrain.com/u/episode2"), matched) };
+    for (const name of [example.english, example.native, localized].filter((name): name is string => Boolean(name))) {
+      pages[`${origin}/search?${new URLSearchParams({ q: name })}`] = name === matched ? card(matched) : '<div class="listupd"></div>';
+    }
+    const fixture = site(pages, { episode2: { name: filename, size: 1_000_000 } });
+    const vod = fixtures([drama(1, { vod_name: localized })], 1);
+    const fetcher: typeof fetch = async (input, options) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "api.themoviedb.org") return ["mkvdrama.net", "pixeldrain.com"].includes(url.hostname)
+        ? fixture.fetcher(input, options) : vod.fetcher(input, options);
+      if (url.pathname.includes("/episode/")) return Response.json({ name: "Episode 2", air_date: "2024-01-01" });
+      if (url.searchParams.get("language") === "en-US") return example.english
+        ? Response.json({ name: example.english }) : new Response(null, { status: 503 });
+      return Response.json({ id: 210757, original_name: example.native, name: localized,
+        first_air_date: "2024-01-01", origin_country: ["CN"] });
+    };
+    const service = new AddonService([...vod.providers, new MkvDrama(fetcher)], new MetadataResolver(fetcher, "test-key"), fetcher,
+      new MediaInspector(fetcher, vod.probe), defaultSettings().resolutions,
+      new MkvHeaderInspector(async () => new Response(null, { status: 503 })));
+    const streams = await service.streams("series", "tmdb:210757:1:2");
+    const mkv = streams.find(stream => stream.description.endsWith("MKVDrama · PixelDrain"));
+    assert.ok(mkv, example.display);
+    assert.equal(mkv.description.split("\n")[0], `${example.display} S01E02`);
+    assert.equal(mkv.behaviorHints.filename, filename);
+    assert.equal(mkv.behaviorHints.videoSize, 1_000_000);
+    assert.equal(mkv.name, "1080P");
+    assert.deepEqual(fixture.seen.filter(item => new URL(item.url).pathname === "/search")
+      .map(item => new URL(item.url).searchParams.get("q")), example.searches);
+    assert.ok(streams.some(stream => stream.description === `${example.vodDisplay} S01E02\nBitrate: 2.5 Mbps\nLanguage: Chinese\nSubtitle: Chinese\n红牛云播`));
+    assert.equal(vod.requests.find(url => url.searchParams.has("wd"))?.searchParams.get("wd"), example.vodDisplay);
+  }
 });
 
 test("MKVDrama failures leave healthy VOD sources available", async () => {

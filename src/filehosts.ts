@@ -8,7 +8,7 @@ export const MKVDRAMA_HOSTS = [
 export function fileHost(hostname: string): string | undefined {
   if (hostname === "pixeldrain.com") return "pixeldrain";
   if (hostname === "fileditchvids.st" || hostname.endsWith(".fileditchvids.st")) return "fileditchvids";
-  if (hostname === "send.now" || hostname.endsWith(".send.now") || hostname.endsWith(".sendcdn.com") || hostname.endsWith(".datatransfer.to")) return "send";
+  if (hostname === "send.now" || hostname.endsWith(".send.now") || hostname.endsWith(".sendcdn.com") || hostname.endsWith(".datatransfer.to") || hostname.endsWith(".usercdn.com")) return "send";
 }
 
 export function hostLabel(url: string): string {
