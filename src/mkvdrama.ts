@@ -15,12 +15,23 @@ const ORIGIN = "https://mkvdrama.net";
 const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com", "send.now"]);
 const HOSTS = new Set(MKVDRAMA_HOSTS.map(host => host.id));
 
-function pageFetcher(): Fetcher {
+export function pageFetcher(env: NodeJS.ProcessEnv = process.env): Fetcher {
+  let proxy: string | undefined;
+  const value = env.MKVDRAMA_PROXY_URL?.trim();
+  if (value) {
+    const message = "MKVDRAMA_PROXY_URL must be an HTTP, HTTPS, SOCKS5 or SOCKS5H proxy URL without a path, query or fragment";
+    let url: URL;
+    try { url = new URL(value); } catch { throw new Error(message); }
+    if (!["http:", "https:", "socks5:", "socks5h:"].includes(url.protocol) || !url.hostname ||
+      url.pathname && url.pathname !== "/" || url.search || url.hash) throw new Error(message);
+    proxy = url.href;
+  }
   return async (input, options) => {
-    const { Session } = await import("impers");
+    const { Session, CurlOpt } = await import("impers");
     options?.signal?.throwIfAborted();
     // Lookup cookies are managed by read(); never share a native client's cookie jar between lookups.
-    const client = new Session({ impersonate: "chrome", allowRedirects: false });
+    const client = new Session({ impersonate: "chrome", allowRedirects: false, proxy,
+      curlOptions: proxy ? { [CurlOpt.NOPROXY]: "" } : undefined });
     const limit = new AbortController();
     const signal = options?.signal ? AbortSignal.any([options.signal, limit.signal]) : limit.signal;
     const chunks: Buffer[] = [];
@@ -40,7 +51,11 @@ function pageFetcher(): Fetcher {
       });
       return new Response([204, 205, 304].includes(response.status) ? null : Buffer.concat(chunks),
         { status: response.status, statusText: response.statusText, headers: [...response.headers] });
-    } catch (error) { signal.throwIfAborted(); throw error; }
+    } catch (error) {
+      signal.throwIfAborted();
+      if (proxy) throw new Error("MKVDrama proxy request failed; check proxy connectivity, credentials and TLS certificate");
+      throw error;
+    }
     finally { await client.close(); }
   };
 }
