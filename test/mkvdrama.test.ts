@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createCipheriv, createHash } from "node:crypto";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
 import { MkvDrama } from "../src/mkvdrama.js";
 import { AddonService } from "../src/service.js";
 import { MetadataResolver } from "../src/metadata.js";
@@ -218,6 +219,27 @@ test("unsafe redirect targets and loops cannot fetch arbitrary services or consu
     assert.ok(fixture.seen.length <= 10);
     assert.ok(fixture.seen.every(item => new URL(item.url).hostname === "mkvdrama.net"));
   }
+});
+
+test("default discovery budget lets a slow but healthy page chain resolve an episode", async t => {
+  const timeout = AbortSignal.timeout.bind(AbortSignal);
+  // Scale deadlines and page latency together so the 20-second lookup runs in 200 ms.
+  t.mock.method(AbortSignal, "timeout", milliseconds => timeout(Math.ceil(milliseconds / 100)));
+  const fixture = site({
+    [`${origin}/search?q=Test+Drama`]: card(),
+    [`${origin}/123-test-drama`]: detail(anchor("https://pixeldrain.com/u/episode2"))
+  }, { episode2: { name: filename } });
+  const source = new MkvDrama(async (input, options) => {
+    if (new URL(String(input)).hostname === "mkvdrama.net") {
+      await delay(100, undefined, { signal: options?.signal ?? undefined });
+    }
+    return fixture.fetcher(input, options);
+  });
+  const files = await source.streams(title, request);
+  assert.equal(files[0].filename, filename);
+  assert.equal(files[0].url, "https://pixeldrain.com/api/file/episode2");
+  assert.ok(fixture.seen.every(item => item.options?.signal === fixture.seen[0].options?.signal),
+    "page and host metadata requests must share one bounded deadline");
 });
 
 test("one shared deadline aborts slow page requests", async () => {
