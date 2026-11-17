@@ -16,6 +16,7 @@ const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc
 const HOSTS = new Set(MKVDRAMA_HOSTS.map(host => host.id));
 
 export function pageFetcher(env: NodeJS.ProcessEnv = process.env): Fetcher {
+  const encryptedHellos = new Cache<string>(1);
   let proxy: string | undefined;
   const value = env.MKVDRAMA_PROXY_URL?.trim();
   if (value) {
@@ -30,16 +31,29 @@ export function pageFetcher(env: NodeJS.ProcessEnv = process.env): Fetcher {
     const { Session, CurlOpt } = await import("impers");
     options?.signal?.throwIfAborted();
     // Lookup cookies are managed by read(); never share a native client's cookie jar between lookups.
-    const client = new Session({ impersonate: "chrome", allowRedirects: false, proxy,
-      curlOptions: proxy ? { [CurlOpt.NOPROXY]: "" } : undefined });
+    const client = new Session({ impersonate: "chrome", allowRedirects: false, proxy });
     const limit = new AbortController();
     const signal = options?.signal ? AbortSignal.any([options.signal, limit.signal]) : limit.signal;
     const chunks: Buffer[] = [];
     let size = 0;
     try {
+      const curlOptions = proxy ? { [CurlOpt.NOPROXY]: "" } : undefined;
+      if (curlOptions && new URL(String(input)).hostname === "viewcrate.cc") {
+        // CONNECT skips the origin DNS lookup that normally supplies Chrome's ECH configuration.
+        curlOptions[CurlOpt.ECH] = "ecl:" + await encryptedHellos.get("viewcrate.cc", 60_000, async () => {
+          const response = await fetch("https://dns.google/resolve?name=viewcrate.cc&type=HTTPS", { signal, redirect: "error" });
+          if (!response.ok) { await response.body?.cancel(); throw new Error("ViewCrate TLS configuration unavailable"); }
+          const dns = JSON.parse(await readLimited(response, 16 * 1024));
+          const record = (Array.isArray(dns.Answer) ? dns.Answer : []).find(
+            (record: { type?: number; data?: string }) => record?.type === 65 && typeof record.data === "string");
+          const config = record?.data.match(/(?:^|\s)ech="?([a-zA-Z0-9+/]+={0,2})(?:"|\s|$)/)?.[1];
+          if (dns.Status !== 0 || !config) throw new Error("ViewCrate TLS configuration unavailable");
+          return config;
+        });
+      }
       const response = await client.request(options?.method === "POST" ? "POST" : "GET", String(input), {
         headers: Object.fromEntries(new Headers(options?.headers)),
-        content: options?.body == null ? undefined : String(options.body), signal, stream: true,
+        content: options?.body == null ? undefined : String(options.body), signal, stream: true, curlOptions,
         headerCallback(chunk) {
           if (/^content-type:\s*(video|audio)\//im.test(chunk.toString())) limit.abort(new Error("Download page returned media instead of links"));
         },
