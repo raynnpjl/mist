@@ -5,6 +5,10 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { MkvDrama, pageFetcher } from "../src/mkvdrama.js";
 
+// Public ECHConfigList fixture; not a credential or a production pin.
+const ECH = "AEX+DQBB7AAgACAoljvazIcCUAEZEJyw/FlphlioFGAu6n6sizGCzaYrMQAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA=";
+const dnsAnswer = () => Response.json({ Status: 0, Answer: [{ name: "viewcrate.cc.", type: 65, TTL: 300, data: `1 . alpn=h2 ech=${ECH}` }] });
+
 test("MKVDrama rejects invalid proxy configuration without exposing credentials", () => {
   for (const value of ["invalid-private-proxy", "ftp://user:secret@private.example", "https://user:secret@private.example/path",
     "https://user:secret@private.example?token=secret", "https://user:secret@private.example#secret", "socks5://"]) {
@@ -22,6 +26,7 @@ test("MKVDrama rejects invalid proxy configuration without exposing credentials"
 });
 
 test("MKVDrama uses authenticated CONNECT for every discovery host and reports proxy failures without credentials", async t => {
+  t.mock.method(globalThis, "fetch", async () => dnsAnswer());
   const previous = process.env.no_proxy;
   process.env.no_proxy = "*";
   t.after(() => { if (previous === undefined) delete process.env.no_proxy; else process.env.no_proxy = previous; });
@@ -51,6 +56,50 @@ test("MKVDrama uses authenticated CONNECT for every discovery host and reports p
   assert.equal(status.available, false);
   assert.match(status.error!, /proxy request failed/);
   assert.doesNotMatch(JSON.stringify(status), /private-password|127\.0\.0\.1/);
+});
+
+test("proxied ViewCrate supplies cached ECH configuration to complete the TLS request", async t => {
+  const { Session, CurlOpt, Response: NativeResponse } = await import("impers");
+  let dnsRequests = 0, requests = 0;
+  t.mock.method(globalThis, "fetch", async (input, options) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, "https://dns.google");
+    assert.equal(url.searchParams.get("name"), "viewcrate.cc");
+    assert.equal(url.searchParams.get("type"), "HTTPS");
+    assert.ok(options?.signal);
+    dnsRequests++;
+    return dnsAnswer();
+  });
+  t.mock.method(Session.prototype, "request", async (_method, input, options) => {
+    requests++;
+    if (new URL(input).hostname === "viewcrate.cc" && options?.curlOptions?.[CurlOpt.ECH] !== `ecl:${ECH}`) {
+      throw new Error("ViewCrate TLS handshake failed without ECH");
+    }
+    options?.contentCallback?.(Buffer.from("download links"));
+    return new NativeResponse({ statusCode: 200 });
+  });
+  const fetcher = pageFetcher({ MKVDRAMA_PROXY_URL: "https://mist:private-password@proxy.example:3129" });
+  await fetcher("https://mkvdrama.net/search?q=drama", { signal: AbortSignal.timeout(1000) });
+  assert.equal(dnsRequests, 0, "other discovery hosts need no extra DNS request");
+  for (const path of ["/c/first", "/c/second"]) {
+    const response = await fetcher(`https://viewcrate.cc${path}`, { signal: AbortSignal.timeout(1000) });
+    assert.equal(await response.text(), "download links");
+  }
+  assert.equal(dnsRequests, 1, "public TLS configuration is shared across proxied ViewCrate requests");
+  assert.equal(requests, 3);
+});
+
+test("missing ViewCrate ECH configuration fails before attempting an unprotected connection", async t => {
+  const { Session, Response: NativeResponse } = await import("impers");
+  let requests = 0;
+  const dns = t.mock.method(globalThis, "fetch", async () => Response.json({ Status: 0, Answer: [] }));
+  t.mock.method(Session.prototype, "request", async () => { requests++; return new NativeResponse({ statusCode: 200 }); });
+  const fetcher = pageFetcher({ MKVDRAMA_PROXY_URL: "https://mist:private-password@proxy.example:3129" });
+  await assert.rejects(fetcher("https://viewcrate.cc/c/first", { signal: AbortSignal.timeout(1000) }), /proxy request failed/);
+  assert.equal(requests, 0);
+  dns.mock.mockImplementation(async () => dnsAnswer());
+  assert.equal((await fetcher("https://viewcrate.cc/c/first", { signal: AbortSignal.timeout(1000) })).status, 200);
+  assert.equal(requests, 1, "a failed DNS load must not poison later lookups");
 });
 
 test("proxy transport preserves POST bodies, cookies and manual redirects", async t => {
