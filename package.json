@@ -1,6 +1,6 @@
 {
   "name": "mist-chinese-addon",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "description": "Chinese streaming sources for existing Stremio and Nuvio catalogs",
   "engines": {

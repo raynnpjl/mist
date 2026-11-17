@@ -1,7 +1,7 @@
 import { STREAM_SOURCES } from "./providers.js";
+import { RESOLUTIONS, Resolution } from "./resolutions.js";
+export { RESOLUTIONS, Resolution } from "./resolutions.js";
 
-export type Resolution = 360 | 480 | 720 | 1080 | "unknown";
-export const RESOLUTIONS: Resolution[] = [360, 480, 720, 1080, "unknown"];
 export interface Settings { sources: string[]; inspectionTimeoutMs: number; resolutions: Resolution[] }
 
 export function defaultSettings(): Settings {
