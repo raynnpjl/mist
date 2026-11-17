@@ -141,7 +141,9 @@ export class AddonService {
     const results = await Promise.allSettled(this.providers.map(async provider => {
       if (provider instanceof MkvDrama) {
         const [english, episode] = await Promise.all([this.metadata.englishName(title, request).catch(() => undefined), info]);
-        const names = [...new Set([...(english ? [english] : []), ...title.names])];
+        const primaryNames = [english, title.nativeName].filter((name): name is string => Boolean(name))
+          .filter((name, index, names) => names.findIndex(other => normalized(other) === normalized(name)) === index);
+        const names = [...new Set([...primaryNames, ...title.names])];
         const inspections = new Map<string, Promise<MkvMetadata>>();
         const invalid = new Set<string>();
         const fileKey = (file: MkvFile) => JSON.stringify([file.url, file.filename, file.size, file.version, file.headers]);
@@ -160,7 +162,7 @@ export class AddonService {
             candidate: { url: file.url, source: provider.source, group: `direct:${file.host}:${file.height || "unknown"}`,
               language: "Chinese", filename: file.filename, videoSize: file.size, host: file.host,
               subtitles: header.subtitles || file.subtitles || "Unknown", averageBitrate: header.averageBitrate, headers: file.headers,
-              displayName: [...new Set([english, title.displayName].filter(Boolean))].join(" ") },
+              displayName: primaryNames.join(" ") || title.displayName },
             media: { reachable: false, height: file.height } as MediaInfo
           };
         }));

@@ -8,7 +8,7 @@ export interface VideoRequest {
   season?: number;
   episode?: number;
 }
-export interface Title { names: string[]; displayName: string; year: number; tmdbId: string }
+export interface Title { names: string[]; displayName: string; nativeName?: string; year: number; tmdbId: string }
 export interface EpisodeInfo { year?: number; date?: string; name?: string }
 
 export function parseVideo(type: string, id: string): VideoRequest | undefined {
@@ -37,7 +37,7 @@ export class MetadataResolver {
 
   private json(url: URL): Promise<any> {
     return this.responses.get(url.href, 6 * 60 * 60_000, () => this.pool.run(async () => {
-      const response = await this.fetcher(url, { headers: { "User-Agent": "Mist/1.3.4 (Stremio addon)", Accept: "application/json" },
+      const response = await this.fetcher(url, { headers: { "User-Agent": "Mist/1.3.5 (Stremio addon)", Accept: "application/json" },
         signal: AbortSignal.timeout(this.timeout) });
       if (response.status === 404) { await response.body?.cancel(); return undefined; }
       if (!response.ok) {
@@ -88,7 +88,7 @@ export class MetadataResolver {
       ...alternatives.filter((a: any) => ["CN", "HK", "TW", "MO"].includes(a.iso_3166_1)).map((a: any) => a.title)]);
     const year = yearOf(data.release_date || data.first_air_date);
     if (!names.length || !year) return;
-    return { names, displayName: names[0], year, tmdbId: id };
+    return { names, displayName: names[0], nativeName: value(data.original_title || data.original_name) || undefined, year, tmdbId: id };
   }
 
   episode(title: Title, request: VideoRequest): Promise<EpisodeInfo | undefined> {

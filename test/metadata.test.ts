@@ -25,6 +25,21 @@ test("configured TMDB lookup resolves IMDb IDs to native aliases and episode dat
   assert.ok(seen.every(url => url.hostname === "api.themoviedb.org"));
 });
 
+test("TMDB original titles are retained separately from localized display names", async () => {
+  for (const [type, data, nativeName, localized] of [
+    ["series", { original_name: "더 글로리", name: "黑暗荣耀" }, "더 글로리", "黑暗荣耀"],
+    ["movie", { original_title: "Original Film", title: "本地化片名" }, "Original Film", "本地化片名"],
+    ["series", { name: "只有译名" }, undefined, "只有译名"]
+  ] as const) {
+    const resolver = new MetadataResolver(async () => Response.json({ ...data, id: 210757,
+      first_air_date: "2024-01-01", release_date: "2024-01-01", origin_country: ["CN"] }), "test-key");
+    const title = await resolver.title({ type, id: "tmdb:210757" });
+    assert.equal(title?.nativeName, nativeName);
+    assert.equal(title?.displayName, localized, "other providers keep their existing localized display name");
+    assert.ok(title?.names.includes(localized));
+  }
+});
+
 test("bad configured credentials surface an error without switching metadata providers", async () => {
   const resolver = new MetadataResolver(async () => new Response("Unauthorized", { status: 401 }), "invalid-key");
   await assert.rejects(resolver.title({ type: "movie", id: "tmdb:210757" }), /metadata HTTP 401/);
