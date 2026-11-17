@@ -9,7 +9,7 @@ import { HlsPlaylists } from "./hls.js";
 import { defaultSettings, parseSettings, RESOLUTIONS, Settings } from "./settings.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.3.4", name: "Mist",
+  id: "org.mist.chinese", version: "1.3.5", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",

@@ -34,6 +34,18 @@ test("Send reads player metadata without requesting media and labels available s
   assert.equal(seen[0].options?.method, undefined);
 });
 
+test("Send accepts usercdn player URLs and preserves filename, subtitles and playback headers", async () => {
+  const direct = `https://dl9750.usercdn.com/d/player-signed/${filename}`;
+  let reads = 0;
+  const file = await resolveSend("https://send.now/second", async url => {
+    reads++;
+    assert.equal(url, "https://send.now/second", "the resolver must not request the generated video URL");
+    return { text: page + playerConfig(direct) + '<video><track kind="subtitles" label="English"></video>' };
+  });
+  assert.deepEqual(file, { url: direct, filename, subtitles: "English", headers: { Referer: "https://send.now/second" } });
+  assert.equal(reads, 1);
+});
+
 test("Send subtitle metadata stays unknown when absent and names a single listed language", async () => {
   for (const [track, subtitles] of [["", undefined], ['<video><track kind="subtitles" label="English"></video>', "English"]]) {
     const file = await resolveSend("https://send.now/second", async () =>
@@ -54,7 +66,8 @@ test("Send rejects missing player metadata and filenames without submitting down
 
 test("Send rejects unsafe, unrelated and non-file destinations without following them", async () => {
   for (const source of [undefined, "http://d1.sendcdn.com/d/file.mkv", "https://user:secret@d1.sendcdn.com/d/file.mkv",
-    "https://d1.sendcdn.com:8443/d/file.mkv", "https://d1.sendcdn.com.evil.example/d/file.mkv", "https://send.now/login"]) {
+    "https://d1.sendcdn.com:8443/d/file.mkv", "https://d1.sendcdn.com.evil.example/d/file.mkv", "https://send.now/login",
+    "https://dl9750.usercdn.com.evil.example/d/file.mkv", "https://evilusercdn.com/d/file.mkv", "https://dl9750.usercdn.com/login"]) {
     let reads = 0;
     await assert.rejects(resolveSend("https://send.now/second", async () => {
       reads++;
