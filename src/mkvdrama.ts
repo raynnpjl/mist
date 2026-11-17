@@ -1,19 +1,82 @@
 import { createDecipheriv, createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { load } from "cheerio";
-import { Cache, Pool, readLimited } from "./cache.js";
+import { Cache, readLimited } from "./cache.js";
+import { DiscoveryCache, DiscoveryStore } from "./discovery-cache.js";
+import { mkvNetwork } from "./mkv-work.js";
 import type { Title, VideoRequest } from "./metadata.js";
 import { normalized, webUrl } from "./model.js";
 import type { Fetcher } from "./providers.js";
 import { resolveOuo } from "./ouo.js";
 import { MKVDRAMA_HOSTS, fileHost, hostLabel, resolveSend } from "./filehosts.js";
+import { RESOLUTIONS, Resolution } from "./resolutions.js";
 
 export const MKVDRAMA_SOURCE = { id: "mkvdrama", name: "MKVDrama" };
-export interface MkvFile { url: string; filename: string; size?: number; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
-interface Lookup { signal: AbortSignal; remaining: number; cookies: Map<string, string> }
+export interface MkvFile { url: string; filename: string; size?: number; version?: string; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
+type FileObserver = (file: MkvFile) => void | Promise<boolean>;
+interface Lookup { signal: AbortSignal; budget: { remaining: number; failed?: boolean }; cookies: Map<string, string>; refreshed: Set<string>; invalid: Set<string>; resolutions: Resolution[]; onFile?: FileObserver }
+interface FileReference { page: string; filename: string; size?: number; version?: string; height?: number; subtitles?: string }
+interface EpisodeMapping { completed: boolean; files: FileReference[] }
 const ORIGIN = "https://mkvdrama.net";
 const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com", "send.now"]);
 const HOSTS = new Set(MKVDRAMA_HOSTS.map(host => host.id));
+const HOUR = 60 * 60_000;
+const HEIGHT = /\b(2160|1440|1080|720|540|480|360)p/i;
+
+class InvalidLink extends Error {}
+
+function stablePage(input: unknown): input is string {
+  if (typeof input !== "string" || input.length > 2048) return false;
+  try {
+    const url = new URL(input);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port && !url.search && !url.hash;
+  } catch { return false; }
+}
+
+function hostLink(input: string | undefined): boolean {
+  if (!input) return true;
+  const url = new URL(input);
+  return HOSTS.has(fileHost(url.hostname) || "") || /\.(mkv|mp4)$/i.test(url.pathname);
+}
+
+function reference(file: MkvFile): FileReference | undefined {
+  const page = fileHost(new URL(file.url).hostname) === "send" ? file.headers?.Referer : file.url;
+  if (!stablePage(page) || file.headers && Object.keys(file.headers).some(key => key !== "Referer")) return;
+  const url = new URL(page);
+  const host = fileHost(new URL(file.url).hostname);
+  if (!(host === "send" && url.hostname === "send.now" && /^\/[a-zA-Z0-9_-]+\/?$/.test(url.pathname) ||
+    host === "pixeldrain" && url.hostname === "pixeldrain.com" && /^\/api\/file\/[a-zA-Z0-9]+\/?$/.test(url.pathname))) return;
+  return { page, filename: file.filename, ...(file.size ? { size: file.size } : {}), ...(file.version ? { version: file.version } : {}),
+    ...(file.height ? { height: file.height } : {}), ...(file.subtitles ? { subtitles: file.subtitles } : {}) };
+}
+
+function episodeMapping(value: unknown): value is EpisodeMapping {
+  const entry = value as EpisodeMapping;
+  return Boolean(entry && typeof entry.completed === "boolean" && Array.isArray(entry.files) && entry.files.length > 0 && entry.files.length <= 128 &&
+    Object.keys(entry).every(key => ["completed", "files"].includes(key)) && entry.files.every(file => file && stablePage(file.page) &&
+      typeof file.filename === "string" && file.filename.length <= 1024 &&
+      (file.size === undefined || Number.isSafeInteger(file.size) && file.size > 0) &&
+      (file.version === undefined || typeof file.version === "string" && file.version.length <= 256) &&
+      (file.height === undefined || Number.isSafeInteger(file.height) && file.height > 0) &&
+      (file.subtitles === undefined || typeof file.subtitles === "string" && file.subtitles.length <= 100) &&
+      Object.keys(file).every(key => ["page", "filename", "size", "version", "height", "subtitles"].includes(key))));
+}
+
+// Unknown signature lifetimes are deliberately not cached. Shared records never contain playback URLs.
+function playbackTtl(files: MkvFile[]): number {
+  if (!files.length || Buffer.byteLength(JSON.stringify(files)) > 64 * 1024) return 0;
+  let ttl = 2 * 60_000;
+  for (const file of files) {
+    const url = new URL(file.url);
+    const expiry = [...url.searchParams].find(([key]) => /^(exp|expires|expiry|expire|e)$/i.test(key))?.[1];
+    if (expiry) {
+      const value = Number(expiry);
+      if (!Number.isFinite(value)) return 0;
+      ttl = Math.min(ttl, (value < 1e12 ? value * 1000 : value) - Date.now() - 5000);
+    } else if (url.search || url.hostname !== "pixeldrain.com" || !/^\/api\/file\/[a-zA-Z0-9]+\/?$/.test(url.pathname)) return 0;
+  }
+  return Math.max(0, ttl);
+}
 
 export function pageFetcher(env: NodeJS.ProcessEnv = process.env): Fetcher {
   const encryptedHellos = new Cache<string>(1);
@@ -103,8 +166,27 @@ function wanted(filename: string, request: VideoRequest, season: number): boolea
 
 function file(url: string, filename: string, request: VideoRequest, season: number, quality: string, size?: number): MkvFile[] {
   if (!wanted(filename, request, season)) return [];
-  const height = Number((filename + " " + quality).match(/\b(2160|1440|1080|720|540|480|360)p/i)?.[1]) || undefined;
+  const height = Number((filename + " " + quality).match(HEIGHT)?.[1]) || undefined;
   return [{ url, filename, height, host: hostLabel(url), ...(Number.isSafeInteger(size) && size! > 0 ? { size } : {}) }];
+}
+
+function disabledBundle(quality: string, url: string | undefined, text: string, resolutions: Resolution[]): boolean {
+  if (resolutions.length === RESOLUTIONS.length) return false;
+  const match = quality.match(HEIGHT);
+  // Only a standalone resolution label (including the site's "1080pHD" form) proves exclusivity.
+  if (!match || !/^(?:HD)?$/i.test(quality.replace(HEIGHT, "").trim())) return false;
+  const height = Number(match[1]);
+  let hints = text;
+  if (url) {
+    const path = new URL(url).pathname;
+    if (/\.(mkv|mp4)$/i.test(path)) {
+      try { hints += " " + decodeURIComponent(path.split("/").pop()!); }
+      catch { return false; }
+    }
+  }
+  if ([...hints.matchAll(new RegExp(HEIGHT, "gi"))].some(hint => Number(hint[1]) !== height)) return false;
+  const resolution = RESOLUTIONS.find(value => typeof value === "number" && height <= value);
+  return resolution === undefined || !resolutions.includes(resolution);
 }
 
 export class MkvDrama {
@@ -112,25 +194,34 @@ export class MkvDrama {
   private cache = new Cache<MkvFile[]>(128);
   private checks = new Cache<{ available: boolean; checkedAt: string; responseMs?: number; error?: string }>(1);
   private redirects = new Cache<string>(128);
-  private pool = new Pool(2);
+  private pages: DiscoveryCache<string[]>;
+  private episodes: DiscoveryCache<EpisodeMapping>;
   private retryAt = 0;
   private state: { lastSuccess?: string; lastError?: string } = {};
-  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 30_000) {}
+  constructor(private fetcher: Fetcher = pageFetcher(), private timeout = 30_000, store = new DiscoveryStore()) {
+    this.pages = new DiscoveryCache("shows", 128, (value): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 4 &&
+      value.every(url => stablePage(url) && new URL(url).origin === ORIGIN), store);
+    this.episodes = new DiscoveryCache("episodes", 256, episodeMapping, store);
+  }
 
   status() { return { ...MKVDRAMA_SOURCE, ...this.state }; }
 
-  private lookup(): Lookup {
-    return { signal: AbortSignal.timeout(this.timeout), remaining: 32, cookies: new Map() };
+  private lookup(onFile?: FileObserver, resolutions = RESOLUTIONS): Lookup {
+    return { signal: AbortSignal.timeout(this.timeout), budget: { remaining: 32 }, cookies: new Map(), refreshed: new Set(), invalid: new Set(), resolutions, onFile };
   }
 
   private async read(url: string, lookup: Lookup, init: RequestInit = {}): Promise<{ text: string; redirect?: string }> {
+    return mkvNetwork.run(() => this.readPage(url, lookup, init), lookup.signal);
+  }
+
+  private async readPage(url: string, lookup: Lookup, init: RequestInit): Promise<{ text: string; redirect?: string }> {
     const target = new URL(url);
     const verification = target.hostname === "www.google.com" && /^\/recaptcha\/api2\/(anchor|reload)$/.test(target.pathname);
     if (target.protocol !== "https:" || target.port || target.username || target.password || !PAGE_HOSTS.has(target.hostname) && !verification) {
       throw new Error("Unsupported download page");
     }
     lookup.signal.throwIfAborted();
-    if (--lookup.remaining < 0) throw new Error("Download lookup exceeded its request budget");
+    if (--lookup.budget.remaining < 0) throw new Error("Download lookup exceeded its request budget");
     const headers = new Headers(init.headers);
     if (!headers.has("Accept")) headers.set("Accept", "text/html");
     const cookie = lookup.cookies.get(target.origin);
@@ -147,6 +238,7 @@ export class MkvDrama {
     }
     if (!response.ok) {
       await response.body?.cancel();
+      if (response.status === 404 || response.status === 410) throw new InvalidLink(`Download page HTTP ${response.status}`);
       throw new Error(response.status === 403 ? "Access blocked (HTTP 403; browser verification may be required)" : `Download page HTTP ${response.status}`);
     }
     if (/^(video|audio)\//i.test(response.headers.get("Content-Type") || "")) {
@@ -174,12 +266,16 @@ export class MkvDrama {
     });
   }
 
-  streams(title: Title, request: VideoRequest, episodeYear?: number): Promise<MkvFile[]> {
-    const key = JSON.stringify([title.names, title.year, request.type, request.season, request.episode, episodeYear]);
-    return this.cache.get(key, 2 * 60_000, () => this.pool.run(async () => {
+  streams(title: Title, request: VideoRequest, episodeYear?: number, onFile?: FileObserver, resolutions: readonly Resolution[] = RESOLUTIONS): Promise<MkvFile[]> {
+    const selection = RESOLUTIONS.filter(resolution => resolutions.includes(resolution));
+    const key = JSON.stringify([title.names, title.year, request.type, request.season, request.episode, episodeYear, selection]);
+    const lookup = this.lookup(onFile, selection);
+    let loaded = false;
+    const discover = async () => {
+      loaded = true;
       if (Date.now() < this.retryAt) throw new Error("MKVDrama: temporarily unavailable");
       try {
-        const files = await this.find(title, request, this.lookup(), episodeYear);
+        const files = await this.find(title, request, lookup, episodeYear);
         this.state = { lastSuccess: new Date().toISOString() };
         this.retryAt = 0;
         return files;
@@ -188,7 +284,25 @@ export class MkvDrama {
         this.state.lastError = error instanceof Error ? error.message : "Lookup failed";
         throw error;
       }
-    }));
+    };
+    return this.cache.get(key, playbackTtl, discover).then(async files => {
+      if (!loaded) await this.observed(files, lookup);
+      if (lookup.invalid.size) {
+        this.cache.delete(key);
+        if (!loaded) {
+          lookup.invalid.clear();
+          lookup.refreshed.add("playback");
+          files = await this.cache.get(key, playbackTtl, discover);
+          if (lookup.invalid.size) this.cache.delete(key);
+        }
+      }
+      return files;
+    });
+  }
+
+  private async observed(files: MkvFile[], lookup: Lookup): Promise<MkvFile[]> {
+    await Promise.all(files.map(async file => { if (await lookup.onFile?.(file)) lookup.invalid.add(file.url); }));
+    return files;
   }
 
   private async downloads(url: string, lookup: Lookup, minAge: number): Promise<string> {
@@ -212,58 +326,136 @@ export class MkvDrama {
     return decryptPayload(payload, createHash("sha256").update(`access-payload:${gateUrl.pathname}${gateUrl.search}`).digest());
   }
 
+  private branch(lookup: Lookup): Lookup { return { ...lookup, cookies: new Map(lookup.cookies) }; }
+
+  private async together<T>(items: T[], work: (item: T, lookup: Lookup) => Promise<MkvFile[]>, lookup: Lookup, limit = 2): Promise<MkvFile[]> {
+    // Let chains reach a host before a wide listing spends the shared budget on every sibling's first steps.
+    const results: PromiseSettledResult<MkvFile[]>[] = [];
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        try {
+          lookup.signal.throwIfAborted();
+          results[index] = { status: "fulfilled", value: await work(items[index], this.branch(lookup)) };
+        } catch (reason) { results[index] = { status: "rejected", reason }; }
+      }
+    }));
+    if (results.some(result => result.status === "rejected")) lookup.budget.failed = true;
+    const files = results.flatMap(result => result.status === "fulfilled" ? result.value : []);
+    if (!files.length) {
+      const error = results.find(result => result.status === "rejected");
+      if (error?.status === "rejected") throw error.reason;
+    }
+    return files;
+  }
+
   private async find(title: Title, request: VideoRequest, lookup: Lookup, episodeYear?: number): Promise<MkvFile[]> {
     const names = new Set(title.names.map(name => identity(name).name));
-    const visited = new Set<string>();
+    const visited = new Set<string>(), excluded = new Set<string>();
     for (const name of title.names.slice(0, 3)) {
-      const search = await this.read(`${ORIGIN}/search?${new URLSearchParams({ q: name })}`, lookup);
-      if (search.redirect) throw new Error("Search redirected instead of returning results");
-      const $ = load(search.text);
-      if (!$(".listupd, article.bs").length) throw new Error("Search page not readable");
-      const matches = $("article.bs").toArray().filter(element => {
-        const card = $(element), link = card.find('a[itemprop="url"], a.tip').first();
-        const found = identity(link.attr("title") || card.find("b, h2").first().text());
-        return names.has(found.name) && (!found.season || found.season === request.season);
-      }).slice(0, 4);
-      for (const match of matches) {
-        const url = absolute($(match).find('a[itemprop="url"], a.tip').first().attr("href"), ORIGIN);
-        if (!url || new URL(url).origin !== ORIGIN || visited.has(url)) continue;
-        visited.add(url);
-        const page = await this.read(url, lookup);
-        if (page.redirect) continue;
-        const detail = load(page.text), found = identity(detail("h1.entry-title, h1").first().text());
-        if (!names.has(found.name) || found.season && found.season !== request.season) continue;
-        const facts = detail(".infox .spe span").toArray().map(element => detail(element).text().trim());
-        const year = Number(facts.find(fact => /^Aired:|^Release(?:d)?:/i.test(fact))?.match(/\b(?:19|20)\d{2}\b/)?.[0]);
-        const type = facts.find(fact => /^Type:/i.test(fact)) || "";
-        const expectedYear = found.season && found.season > 1 ? episodeYear || title.year : title.year;
-        if (year !== expectedYear || !type || /movie/i.test(type) !== (request.type === "movie")) continue;
-        if (!detail(".soraddlx").length && detail("#mlx-root").length) {
-          const html = await this.downloads(url, lookup, Number(detail("#mlx-root").attr("data-min-age")) || 0);
-          detail("#mlx-root").html(html);
+      const key = JSON.stringify([title.names, title.year, request.type, request.season, episodeYear, name]);
+      let searched = false;
+      const search = async () => {
+        searched = true;
+        const page = await this.read(`${ORIGIN}/search?${new URLSearchParams({ q: name })}`, lookup);
+        if (page.redirect) throw new Error("Search redirected instead of returning results");
+        const $ = load(page.text);
+        if (!$(".listupd, article.bs").length) throw new Error("Search page not readable");
+        return $("article.bs").toArray().filter(element => {
+          const card = $(element), link = card.find('a[itemprop="url"], a.tip').first();
+          const found = identity(link.attr("title") || card.find("b, h2").first().text());
+          return names.has(found.name) && (!found.season || found.season === request.season);
+        }).slice(0, 4).map(element => absolute($(element).find('a[itemprop="url"], a.tip').first().attr("href"), ORIGIN))
+          .filter((url): url is string => Boolean(url && new URL(url).origin === ORIGIN));
+      };
+      let urls = await this.pages.get(key, urls => urls.length ? 6 * HOUR : 0, search, lookup.signal);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        for (const url of urls) {
+          if (visited.has(url)) continue;
+          visited.add(url);
+          const episodeKey = JSON.stringify([url, title.names, title.year, request.type, request.season, request.episode, episodeYear, lookup.resolutions]);
+          let fresh: MkvFile[] | undefined;
+          const discover = async (): Promise<EpisodeMapping> => {
+            const result = await this.discover(url, title, names, request, lookup, episodeYear);
+            if (result.excluded) excluded.add(url);
+            fresh = result.files;
+            const refs = fresh.map(reference);
+            // Never save a partial source set when one host has only a transient locator.
+            return { completed: result.completed, files: !lookup.budget.failed && !lookup.invalid.size && refs.every(ref => ref !== undefined) ? refs : [] };
+          };
+          const ttl = (entry: EpisodeMapping) => entry.files.length ? (entry.completed ? 24 * HOUR : HOUR / 2) : 0;
+          let mapping: EpisodeMapping;
+          const refresh = lookup.refreshed.has("playback") && !lookup.refreshed.has(episodeKey);
+          if (refresh) lookup.refreshed.add(episodeKey);
+          try { mapping = await this.episodes.get(episodeKey, ttl, discover, lookup.signal, refresh); }
+          catch (error) { if (error instanceof InvalidLink) continue; throw error; }
+          if (!fresh) {
+            let invalid = false;
+            fresh = await this.together(mapping.files, async (ref, branch) => {
+              try {
+                const files = await this.resolve(ref.page, request, request.season || 1, ref.height ? `${ref.height}p` : "", branch);
+                if (!files.length || files.some(file => file.filename !== ref.filename ||
+                  ref.size !== undefined && file.size !== undefined && file.size !== ref.size ||
+                  ref.version !== undefined && file.version !== undefined && file.version !== ref.version)) invalid = true;
+                return files.map(file => ({ ...file, height: file.height || ref.height, subtitles: file.subtitles || ref.subtitles }));
+              } catch (error) { if (error instanceof InvalidLink) { invalid = true; return []; } throw error; }
+            }, lookup);
+            invalid ||= fresh.some(file => lookup.invalid.has(file.url));
+            if (invalid && !lookup.refreshed.has(episodeKey)) {
+              lookup.refreshed.add(episodeKey);
+              lookup.invalid.clear();
+              const available = fresh;
+              fresh = undefined;
+              try { await this.episodes.get(episodeKey, ttl, discover, lookup.signal, true); }
+              catch (error) { if (available.length) fresh = available; else throw error; }
+            }
+          }
+          if (fresh?.length) return [...new Map(fresh.map(file => [file.url, file])).values()];
         }
-        if (!detail(".soraddlx").length) throw new Error("Download links require browser rendering or verification");
-        const files: MkvFile[] = [];
-        const errors: unknown[] = [];
-        const links = detail(".soraurlx a[href]").toArray().map(link => ({
-          url: absolute(detail(link).attr("href"), url), quality: detail(link).closest(".soraurlx").find("strong").text()
-        })).sort((a, b) => (Number(b.quality.match(/\d+/)?.[0]) || 0) - (Number(a.quality.match(/\d+/)?.[0]) || 0)).slice(0, 12);
-        for (const link of links) {
-          if (!link.url) continue;
-          try { files.push(...await this.resolve(link.url, request, found.season || 1, link.quality, lookup)); }
-          catch (error) { errors.push(error); }
-        }
-        if (files.length) {
-          const subtitleText = facts.find(fact => /^Subtitles?:/i.test(fact))?.replace(/^Subtitles?:\s*/i, "") ||
-            detail('meta[name="description"]').attr("content")?.match(/with\s+(.{1,100}?)\s+subtitles/i)?.[1];
-          const subtitles = /multi(?:ple|sub)?/i.test(subtitleText || "") ? "Multiple" : subtitleText?.trim();
-          return [...new Map(files.map(file => [file.url, { ...file,
-            ...(file.subtitles || subtitles ? { subtitles: file.subtitles || subtitles } : {}) }])).values()];
-        }
-        if (errors.length) throw errors[0];
+        if (urls.some(url => excluded.has(url))) break;
+        // A cached show locator may predate a newly posted episode or replacement listing.
+        if (searched || lookup.refreshed.has(key)) break;
+        lookup.refreshed.add(key);
+        urls = await this.pages.get(key, urls => urls.length ? 6 * HOUR : 0, search, lookup.signal, true);
       }
     }
     return [];
+  }
+
+  private async discover(url: string, title: Title, names: Set<string>, request: VideoRequest, lookup: Lookup,
+    episodeYear?: number): Promise<{ files: MkvFile[]; completed: boolean; excluded?: boolean }> {
+    const empty = { files: [], completed: false };
+    const page = await this.read(url, lookup);
+    if (page.redirect) return empty;
+    const detail = load(page.text), found = identity(detail("h1.entry-title, h1").first().text());
+    if (!names.has(found.name) || found.season && found.season !== request.season) return empty;
+    const facts = detail(".infox .spe span").toArray().map(element => detail(element).text().trim());
+    const year = Number(facts.find(fact => /^Aired:|^Release(?:d)?:/i.test(fact))?.match(/\b(?:19|20)\d{2}\b/)?.[0]);
+    const type = facts.find(fact => /^Type:/i.test(fact)) || "";
+    const expectedYear = found.season && found.season > 1 ? episodeYear || title.year : title.year;
+    if (year !== expectedYear || !type || /movie/i.test(type) !== (request.type === "movie")) return empty;
+    if (!detail(".soraddlx").length && detail("#mlx-root").length) {
+      const html = await this.downloads(url, lookup, Number(detail("#mlx-root").attr("data-min-age")) || 0);
+      detail("#mlx-root").html(html);
+    }
+    if (!detail(".soraddlx").length) throw new Error("Download links require browser rendering or verification");
+    const candidates = detail(".soraurlx a[href]").toArray().map(link => ({
+      url: absolute(detail(link).attr("href"), url), quality: detail(link).closest(".soraurlx").find("strong").text(), text: detail(link).text()
+    }));
+    const links = candidates.filter(link => !disabledBundle(link.quality, link.url, link.text, lookup.resolutions))
+      .sort((a, b) => (Number(b.quality.match(/\d+/)?.[0]) || 0) - (Number(a.quality.match(/\d+/)?.[0]) || 0)).slice(0, 12);
+    if (!links.length && candidates.length) return { ...empty, excluded: true };
+    const files = await this.together(links, (link, branch) => link.url ?
+      this.resolve(link.url, request, found.season || 1, link.quality, branch) : Promise.resolve([]), lookup,
+    links.every(link => hostLink(link.url)) ? 2 : 1);
+    const subtitleText = facts.find(fact => /^Subtitles?:/i.test(fact))?.replace(/^Subtitles?:\s*/i, "") ||
+      detail('meta[name="description"]').attr("content")?.match(/with\s+(.{1,100}?)\s+subtitles/i)?.[1];
+    const subtitles = /multi(?:ple|sub)?/i.test(subtitleText || "") ? "Multiple" : subtitleText?.trim();
+    const status = facts.find(fact => /^Status:/i.test(fact))?.replace(/^Status:\s*/i, "").trim();
+    return { completed: /^(completed|complete|finished)$/i.test(status || ""),
+      files: [...new Map(files.map(file => [file.url, { ...file,
+        ...(file.subtitles || subtitles ? { subtitles: file.subtitles || subtitles } : {}) }])).values()] };
   }
 
   private async resolve(url: string, request: VideoRequest, season: number, quality: string, lookup: Lookup,
@@ -275,18 +467,22 @@ export class MkvDrama {
     if (host && !HOSTS.has(host)) return [];
     if (target.hostname === "send.now") {
       const result = await resolveSend(url, (url, options) => this.read(url, lookup, options));
-      return file(result.url, result.filename, request, season, quality).map(file => ({ ...file, subtitles: result.subtitles, headers: result.headers }));
+      const files = file(result.url, result.filename, request, season, quality).map(file => ({ ...file, subtitles: result.subtitles, headers: result.headers }));
+      return this.observed(files, lookup);
     }
     if (/\.(mkv|mp4)$/i.test(target.pathname)) {
-      return file(url, decodeURIComponent(target.pathname.split("/").pop()!), request, season, quality);
+      const files = file(url, decodeURIComponent(target.pathname.split("/").pop()!), request, season, quality);
+      return this.observed(files, lookup);
     }
     if (target.hostname === "pixeldrain.com") {
       const id = target.pathname.match(/^\/u\/([a-zA-Z0-9]+)\/?$/)?.[1] ||
         target.pathname.match(/^\/api\/file\/([a-zA-Z0-9]+)\/?$/)?.[1];
       if (!id) return [];
       const info = JSON.parse((await this.read(`https://pixeldrain.com/api/file/${id}/info`, lookup)).text);
-      if (info.success === false || typeof info.name !== "string" || info.can_download === false) return [];
-      return file(`https://pixeldrain.com/api/file/${id}`, info.name, request, season, quality, info.size);
+      if (info.success === false || typeof info.name !== "string" || info.can_download === false) throw new InvalidLink("PixelDrain file unavailable");
+      const files = file(`https://pixeldrain.com/api/file/${id}`, info.name, request, season, quality, info.size)
+        .map(file => typeof info.hash_sha256 === "string" && /^[a-f0-9]{64}$/i.test(info.hash_sha256) ? { ...file, version: info.hash_sha256 } : file);
+      return this.observed(files, lookup);
     }
     if (!PAGE_HOSTS.has(target.hostname)) return [];
     // OUO quick-share links include their destination; decoding avoids a page request.
@@ -296,7 +492,10 @@ export class MkvDrama {
       if (destination) return this.resolve(destination, request, season, quality, lookup, depth + 1);
     }
     if (["ouo.io", "ouo.press"].includes(target.hostname)) {
-      const destination = await this.redirects.get(url, 2 * 60_000, () => resolveOuo(url, (url, options) => this.read(url, lookup, options)));
+      const destination = await this.redirects.get(url, destination => stablePage(destination) &&
+        ["pixeldrain.com", "send.now", "viewcrate.cc", "filecrypt.cc"].includes(new URL(destination).hostname) &&
+        !/\.(mkv|mp4)$/i.test(new URL(destination).pathname) ? 2 * 60_000 : 0,
+      () => resolveOuo(url, (url, options) => this.read(url, lookup, options)));
       return this.resolve(destination, request, season, quality, lookup, depth + 1);
     }
     const page = await this.read(url, lookup);
@@ -311,23 +510,17 @@ export class MkvDrama {
       const links = (data.d as { l?: { n?: string; h?: string; u?: string }[] }[]).flatMap(group => Array.isArray(group.l) ? group.l : [])
         .filter(link => typeof link.h === "string" && HOSTS.has(fileHost(link.h) || "") && typeof link.n === "string" && typeof link.u === "string" &&
           /^[a-zA-Z0-9_-]{1,128}$/.test(link.u) && wanted(link.n.replace(/\s+\d+(?:\.\d+)?\s*[KMGT]i?B$/i, ""), request, season));
-      const files: MkvFile[] = [], errors: unknown[] = [];
-      for (const link of links.slice(0, 8)) {
-        // The final host metadata must confirm the filename before a URL is returned.
-        try { files.push(...await this.resolve(`${base}/open/${link.u}?privacy=noreferrer`, request, season, quality, lookup, depth + 1)); }
-        catch (error) { errors.push(error); }
-      }
-      if (!files.length && errors.length) throw errors[0];
-      return files;
+      // Confirm each filename at its host; bootstrap/open tokens never enter shared storage.
+      return this.together(links.slice(0, 8), (link, branch) =>
+        this.resolve(`${base}/open/${link.u}?privacy=noreferrer`, request, season, quality, branch, depth + 1), lookup);
     }
     const refresh = $('meta[http-equiv="refresh" i]').attr("content")?.match(/url\s*=\s*['"]?([^'"]+)$/i)?.[1];
     const redirect = absolute(refresh, url);
     if (redirect) return this.resolve(redirect, request, season, quality, lookup, depth + 1);
-    const files: MkvFile[] = [];
-    for (const element of $("ul.link-list a[href], a#download, a.download, a.external_link").toArray().slice(0, 16)) {
-      const link = absolute($(element).attr("href"), url);
-      if (link) files.push(...await this.resolve(link, request, season, quality, lookup, depth + 1));
-    }
+    const links = $("ul.link-list a[href], a#download, a.download, a.external_link").toArray().slice(0, 16)
+      .map(element => absolute($(element).attr("href"), url)).filter((link): link is string => Boolean(link));
+    const files = await this.together(links, (link, branch) => this.resolve(link, request, season, quality, branch, depth + 1), lookup,
+      links.every(hostLink) ? 2 : 1);
     if (!files.length) throw new Error("No readable direct download links");
     return files;
   }

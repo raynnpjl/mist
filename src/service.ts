@@ -4,9 +4,9 @@ import { EpisodeInfo, MetadataResolver, Title, VideoRequest, parseVideo } from "
 import { Playable, Vod, chineseKind, normalized, value } from "./model.js";
 import { Fetcher, Provider } from "./providers.js";
 import { DirectStream } from "./protocol.js";
-import { MkvDrama } from "./mkvdrama.js";
+import { MkvDrama, MkvFile } from "./mkvdrama.js";
 import { RESOLUTIONS } from "./settings.js";
-import { MkvHeaderInspector } from "./mkv-metadata.js";
+import { MkvHeaderInspector, MkvMetadata } from "./mkv-metadata.js";
 
 export type StreamProvider = Provider | MkvDrama;
 interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string;
@@ -142,9 +142,20 @@ export class AddonService {
       if (provider instanceof MkvDrama) {
         const [english, episode] = await Promise.all([this.metadata.englishName(title, request).catch(() => undefined), info]);
         const names = [...new Set([...(english ? [english] : []), ...title.names])];
-        const files = (await provider.streams({ ...title, names }, request, episode?.year)).filter(file => this.allowsResolution(file.height));
+        const inspections = new Map<string, Promise<MkvMetadata>>();
+        const invalid = new Set<string>();
+        const fileKey = (file: MkvFile) => JSON.stringify([file.url, file.filename, file.size, file.version, file.headers]);
+        const inspect = (file: MkvFile) => {
+          const key = fileKey(file);
+          if (!inspections.has(key) && this.allowsResolution(file.height)) inspections.set(key, this.mkvInspector.inspect(file, () => { invalid.add(key); }));
+          return inspections.get(key) || Promise.resolve({} as MkvMetadata);
+        };
+        const files = (await provider.streams({ ...title, names }, request, episode?.year, async file => {
+          await inspect(file); return invalid.has(fileKey(file));
+        }, this.resolutions))
+          .filter(file => this.allowsResolution(file.height));
         return Promise.all(files.map(async file => {
-          const header = await this.mkvInspector.inspect(file);
+          const header = await inspect(file);
           return {
             candidate: { url: file.url, source: provider.source, group: `direct:${file.host}:${file.height || "unknown"}`,
               language: "Chinese", filename: file.filename, videoSize: file.size, host: file.host,

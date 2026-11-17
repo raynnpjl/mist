@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Cache, Pool, readBytes } from "./cache.js";
+import { Cache, readBytes } from "./cache.js";
+import { DiscoveryCache, DiscoveryStore } from "./discovery-cache.js";
+import { mkvNetwork } from "./mkv-work.js";
 import { fileHost } from "./filehosts.js";
 import type { MkvFile } from "./mkvdrama.js";
 import type { Fetcher } from "./providers.js";
@@ -10,6 +12,30 @@ type HeaderProbe = (prefix: Buffer, timeoutMs: number) => Promise<any>;
 const run = promisify(execFile);
 const HEADER_BYTES = 128 * 1024;
 const languages = new Intl.DisplayNames(["en"], { type: "language" });
+const DAY = 24 * 60 * 60_000;
+class InvalidPlayback extends Error {}
+
+function metadata(value: unknown): value is MkvMetadata {
+  const entry = value as MkvMetadata;
+  return Boolean(entry && typeof entry === "object" && !Array.isArray(entry) &&
+    Object.keys(entry).every(key => ["subtitles", "averageBitrate"].includes(key)) &&
+    (entry.subtitles === undefined || typeof entry.subtitles === "string" && entry.subtitles.length <= 100) &&
+    (entry.averageBitrate === undefined || Number.isFinite(entry.averageBitrate) && entry.averageBitrate > 0));
+}
+
+function stableIdentity(file: Pick<MkvFile, "url" | "filename" | "size" | "version" | "headers">, url: URL): string | undefined {
+  if (!(Number.isSafeInteger(file.size) && file.size! > 0) && !file.version ||
+    file.headers && Object.keys(file.headers).some(key => key !== "Referer")) return;
+  let id: string | undefined;
+  if (fileHost(url.hostname) === "pixeldrain") id = `pixeldrain:${url.pathname}`;
+  else if (file.headers?.Referer) {
+    try {
+      const page = new URL(file.headers.Referer);
+      if (page.origin === "https://send.now" && /^\/[a-zA-Z0-9_-]+\/?$/.test(page.pathname) && !page.search && !page.hash) id = page.href;
+    } catch { /* No stable host identity: retain only the exact-URL memory entry. */ }
+  }
+  if (id) return JSON.stringify([id, file.filename, file.size, file.version]);
+}
 
 const probeHeader: HeaderProbe = async (prefix, timeoutMs) => {
   // FFprobe receives only the bounded prefix. It cannot open a URL or seek over the network.
@@ -43,10 +69,12 @@ export function parseMkvMetadata(data: any, size: number): MkvMetadata {
 
 export class MkvHeaderInspector {
   private cache = new Cache<MkvMetadata>(512);
-  private pool = new Pool(2);
-  constructor(private fetcher: Fetcher = fetch, private probe: HeaderProbe = probeHeader, private timeoutMs = 3000) {}
+  private shared: DiscoveryCache<MkvMetadata>;
+  constructor(private fetcher: Fetcher = fetch, private probe: HeaderProbe = probeHeader, private timeoutMs = 3000, store = new DiscoveryStore()) {
+    this.shared = new DiscoveryCache("metadata", 512, metadata, store);
+  }
 
-  inspect(file: Pick<MkvFile, "url" | "filename" | "headers">): Promise<MkvMetadata> {
+  inspect(file: Pick<MkvFile, "url" | "filename" | "headers" | "size" | "version">, invalid?: () => void): Promise<MkvMetadata> {
     let url: URL;
     try { url = new URL(file.url); } catch { return Promise.resolve({}); }
     const host = fileHost(url.hostname);
@@ -57,20 +85,24 @@ export class MkvHeaderInspector {
     const headers = new Headers(file.headers);
     headers.set("Range", `bytes=0-${HEADER_BYTES - 1}`);
     headers.set("Accept-Encoding", "identity");
-    const key = JSON.stringify([url.href, [...headers].sort()]);
-    return this.cache.get(key, 6 * 60 * 60_000, () => {
+    const key = JSON.stringify([url.href, file.filename, file.size, file.version, [...headers].sort()]);
+    const inspect = () => {
       const deadline = Date.now() + this.timeoutMs;
       const signal = AbortSignal.timeout(this.timeoutMs);
-      return this.pool.run(async () => {
+      return mkvNetwork.run(async () => {
         signal.throwIfAborted();
         const response = await this.fetcher(url.href, { headers, signal, redirect: "manual" });
         const range = response.headers.get("Content-Range")?.match(/^bytes 0-(\d+)\/(\d+)$/i);
         const end = Number(range?.[1]), size = Number(range?.[2]);
         const encoding = response.headers.get("Content-Encoding");
         const length = response.headers.get("Content-Length");
+        if (response.status === 404 || response.status === 410 || response.status === 206 && file.size !== undefined && range && file.size !== size) {
+          await response.body?.cancel();
+          throw new InvalidPlayback("MKV file unavailable or changed");
+        }
         if (response.status !== 206 || !range || !Number.isSafeInteger(end) || end < 0 || end >= HEADER_BYTES ||
           !Number.isSafeInteger(size) || size <= end || encoding && encoding.toLowerCase() !== "identity" ||
-          length !== null && Number(length) !== end + 1) {
+          length !== null && Number(length) !== end + 1 || file.size !== undefined && file.size !== size) {
           await response.body?.cancel();
           throw new Error("MKV host did not honor the bounded range");
         }
@@ -79,8 +111,15 @@ export class MkvHeaderInspector {
           throw new Error("Invalid Matroska header prefix");
         }
         signal.throwIfAborted();
-        return parseMkvMetadata(await this.probe(prefix, Math.max(1, deadline - Date.now())), size);
-      });
-    }).catch(() => ({}));
+        const result = parseMkvMetadata(await this.probe(prefix, Math.max(1, deadline - Date.now())), size);
+        signal.throwIfAborted();
+        return result;
+      }, signal, true);
+    };
+    const identity = stableIdentity(file, url);
+    return (identity ? this.shared.get(identity, DAY, inspect) : this.cache.get(key, DAY, inspect)).catch(error => {
+      if (error instanceof InvalidPlayback) invalid?.();
+      return {};
+    });
   }
 }
