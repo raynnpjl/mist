@@ -45,12 +45,13 @@ async function api(path, options = {}) {
 function renderSources() {
   $('source-grid').innerHTML = state.config.providers.map(source => {
     const selected = state.draft.sources.includes(source.id);
+    const name = source.id === 'mkvdrama' ? source.name : `${source.name}云播`;
     return `<label class="source-option" for="source-${escape(source.id)}">
-      <span class="source-text"><strong>${escape(source.name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</span>
-      <span class="switch"><input id="source-${escape(source.id)}" data-source="${escape(source.id)}" type="checkbox" role="switch" aria-label="Use ${escape(source.name)}" ${selected ? 'checked' : ''}><span class="switch-track"></span></span>
+      <span class="source-text"><strong>${escape(name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</span>
+      <span class="switch"><input id="source-${escape(source.id)}" data-source="${escape(source.id)}" type="checkbox" role="switch" aria-label="Use ${escape(name)}" ${selected ? 'checked' : ''}><span class="switch-track"></span></span>
     </label>`;
   }).join('');
-  $('resolution-options').innerHTML = state.config.resolutions.map(resolution => {
+  $('resolution-options').innerHTML = [...state.config.resolutions].sort((a, b) => (Number(b) || 0) - (Number(a) || 0)).map(resolution => {
     return `<label class="resolution-option">
       <input type="checkbox" name="resolution" value="${escape(resolution)}" ${state.draft.resolutions.includes(resolution) ? 'checked' : ''}>
       <span>${resolution === 'unknown' ? 'Unknown' : `${resolution}p`}</span>
