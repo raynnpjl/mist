@@ -108,7 +108,7 @@ input::placeholder { color: var(--faint); }
 .source-text small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .resolution-group { margin-top: 30px; }
 .resolution-group .caption { margin-top: 8px; line-height: 1.6; }
-.resolution-options { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin-top: 18px; }
+.resolution-options { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 10px; margin-top: 18px; }
 .resolution-option { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 10px 8px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 13px; }
 .resolution-option:has(input:checked) { border-color: var(--accent); background: var(--tint); }
 .resolution-option input { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); }
@@ -234,7 +234,6 @@ body:has(.modal[open]) .welcome { visibility: hidden; }
   .section-heading h2, .settings-card h2 { font-size: 19px; }
   .source-grid { grid-template-columns: 1fr; }
   .resolution-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .resolution-option:last-child { grid-column: 1 / -1; }
   .settings-card { flex-direction: column; align-items: flex-start; gap: 20px; }
   .range-value output { font-size: 28px; }
   .range-value label { font-size: 12px; }

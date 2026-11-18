@@ -150,7 +150,7 @@ function identity(input: string): { name: string; season?: number } {
 
 function decryptPayload(payload: { d: string; s: string }, key: Buffer): string {
   const bytes = Buffer.from(payload.d, "base64");
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(payload.s, "hex"));
+  const decipher = createDecipheriv(key.length === 16 ? "aes-128-gcm" : "aes-256-gcm", key, Buffer.from(payload.s, "hex"));
   decipher.setAuthTag(bytes.subarray(-16));
   return Buffer.concat([decipher.update(bytes.subarray(0, -16)), decipher.final()]).toString("utf8");
 }
@@ -501,6 +501,27 @@ export class MkvDrama {
     const page = await this.read(url, lookup);
     if (page.redirect) return this.resolve(page.redirect, request, season, quality, lookup, depth + 1);
     const $ = load(page.text);
+    if (target.origin === ORIGIN && /^\/c\/[a-zA-Z0-9_-]+\/?$/.test(target.pathname) && $("#xd[data-n][data-k][data-v]").length) {
+      const [nonce, key, iv] = ["n", "k", "v"].map(attribute => {
+        const pair = JSON.parse($("#xd").attr(`data-${attribute}`)!);
+        if (!Array.isArray(pair) || pair.length !== 2 || !pair.every(part => Array.isArray(part) && part.length > 0 &&
+          part.length <= 64 && part.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)) ||
+          pair[0].length !== pair[1].length) throw new Error("Link container key not readable");
+        return Buffer.from(pair[0].map((byte: number, index: number) => byte ^ pair[1][index]));
+      });
+      if (!/^[a-f0-9]{32}$/i.test(nonce.toString()) || key.length !== 16 || iv.length !== 12) throw new Error("Link container key not readable");
+      const base = target.origin + target.pathname.replace(/\/$/, "");
+      const raw = JSON.parse((await this.read(`${base}/p/${nonce}`, lookup, { headers: { Accept: "application/json", Referer: url } })).text);
+      if (typeof raw.d !== "string") throw new Error("Link container not readable");
+      const data = JSON.parse(decryptPayload({ d: raw.d, s: iv.toString("hex") }, key));
+      if (!Array.isArray(data.links)) throw new Error("Link container file list missing");
+      const links = (data.links as { url?: string; label?: string; quality?: string }[]).map(link => ({
+        ...link, url: absolute(link.url, url)
+      })).filter((link): link is typeof link & { url: string } => Boolean(link.url && HOSTS.has(fileHost(new URL(link.url).hostname) || "") &&
+        typeof link.label === "string" && wanted(link.label, request, season)));
+      return this.together(links.slice(0, 8), (link, branch) =>
+        this.resolve(link.url, request, season, typeof link.quality === "string" ? link.quality : quality, branch, depth + 1), lookup);
+    }
     if (target.hostname === "viewcrate.cc" && /^\/c\/[a-f0-9]+\/?$/i.test(target.pathname)) {
       const base = target.origin + target.pathname.replace(/\/$/, "");
       const raw = JSON.parse((await this.read(`${base}/bootstrap`, lookup, { headers: { Accept: "application/json", Referer: url } })).text);

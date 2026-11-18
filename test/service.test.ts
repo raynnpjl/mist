@@ -44,15 +44,16 @@ test("IMDb and TMDB episodes return Mist sources without any catalog or metadata
   assert.ok(second.length && second.every(s => s.url.endsWith("/2.m3u8")));
 });
 
-test("HD source titles label heights above 720 as 1080P while preserving actual dimensions", async () => {
-  for (const height of [360, 480, 606, 720, 721, 768, 800, 900, 1080]) {
+test("source titles label HD as 1080P and the 2160 tier as 4K while preserving actual dimensions", async () => {
+  for (const height of [360, 480, 606, 720, 721, 768, 800, 900, 1080, 1081, 1440, 1600, 2160]) {
     const fixture = fixtures([drama()], 1);
-    const inspector = new MediaInspector(fixture.fetcher, async () => ({ width: 1920, height }));
+    const width = height > 1080 ? 3840 : 1920;
+    const inspector = new MediaInspector(fixture.fetcher, async () => ({ width, height }));
     const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
     const streams = await service.streams("series", "tt26235088:1:1");
     assert.equal(streams.length, 1);
-    assert.equal(streams[0].name, height > 720 ? "1080P" : `${height}P`, `height ${height}`);
-    assert.ok(streams[0].behaviorHints.filename.includes(`${height}p 1920x${height}`));
+    assert.equal(streams[0].name, height > 1080 ? "4K" : height > 720 ? "1080P" : `${height}P`, `height ${height}`);
+    assert.ok(streams[0].behaviorHints.filename.includes(`${height}p ${width}x${height}`));
   }
 });
 
@@ -60,7 +61,9 @@ test("resolution preferences filter detected streams, group cropped heights, and
   for (const [height, resolutions, count] of [
     [360, [360], 1], [480, [360], 0], [480, [480], 1], [606, [720], 1],
     [720, [1080], 0], [800, [1080], 1], [1080, [720, 1080], 1],
-    [1440, [360, 480, 720, 1080, "unknown"], 0], [undefined, [720], 0],
+    [1440, [360, 480, 720, 1080, "unknown"], 0], [1440, [2160], 1],
+    [2160, [2160], 1], [2160, [1080], 0], [2160, ["unknown"], 0],
+    [2161, [360, 480, 720, 1080, 2160, "unknown"], 0], [undefined, [2160], 0], [undefined, [720], 0],
     [undefined, ["unknown"], 1], [720, ["unknown"], 0]
   ] as [number | undefined, Resolution[], number][]) {
     const fixture = fixtures([drama()], 1);

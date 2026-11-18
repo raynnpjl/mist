@@ -54,7 +54,7 @@ function renderSources() {
   $('resolution-options').innerHTML = [...state.config.resolutions].sort((a, b) => (Number(b) || 0) - (Number(a) || 0)).map(resolution => {
     return `<label class="resolution-option">
       <input type="checkbox" name="resolution" value="${escape(resolution)}" ${state.draft.resolutions.includes(resolution) ? 'checked' : ''}>
-      <span>${resolution === 'unknown' ? 'Unknown' : `${resolution}p`}</span>
+      <span>${resolution === 2160 ? '4K' : resolution === 'unknown' ? 'Unknown' : `${resolution}p`}</span>
     </label>`;
   }).join('');
   renderSelection();
