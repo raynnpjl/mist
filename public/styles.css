@@ -101,9 +101,17 @@ input::placeholder { color: var(--faint); }
 .source-group legend { padding: 0; font-size: 17px; font-weight: 600; }
 .sources-toolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
 .sources-toolbar .text-button { font-size: 12px; }
-.source-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 40px; }
-.source-option { min-width: 0; min-height: 64px; padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; cursor: pointer; }
-.source-text { min-width: 0; }
+.source-order-help { margin-top: 12px; line-height: 1.6; }
+.source-grid { position: relative; display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.source-option { position: relative; min-width: 0; min-height: 64px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--subtle); display: flex; align-items: center; gap: 14px; }
+.source-option.dragging { background: var(--tint); border: 1px dashed var(--accent); }
+.source-option.dragging > * { opacity: 0; }
+.source-floating { position: fixed; z-index: 20; margin: 0; background: var(--surface); border-color: var(--accent); box-shadow: 0 16px 40px rgba(0,0,0,.22); transform: scale(1.015); pointer-events: none; }
+.source-drag { display: flex; align-items: center; justify-content: center; flex: 0 0 44px; height: 44px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: grab; touch-action: none; user-select: none; font-size: 24px; }
+.source-drag:active { cursor: grabbing; }
+.source-drag:not(:disabled):hover { background: var(--tint); color: var(--accent); }
+.source-text { min-width: 0; cursor: pointer; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .source-text strong { display: block; font-size: 14px; font-weight: 500; }
 .source-text small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .resolution-group { margin-top: 30px; }
@@ -232,7 +240,6 @@ body:has(.modal[open]) .welcome { visibility: hidden; }
   .summary-card .caption { grid-column: 1; }
   .card { padding: 24px 20px; }
   .section-heading h2, .settings-card h2 { font-size: 19px; }
-  .source-grid { grid-template-columns: 1fr; }
   .resolution-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .settings-card { flex-direction: column; align-items: flex-start; gap: 20px; }
   .range-value output { font-size: 28px; }

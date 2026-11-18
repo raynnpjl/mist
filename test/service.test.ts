@@ -9,6 +9,7 @@ import { Provider } from "../src/providers.js";
 import { Pool } from "../src/cache.js";
 import { MediaInspector } from "../src/media.js";
 import { HlsPlaylists } from "../src/hls.js";
+import { MkvDrama } from "../src/mkvdrama.js";
 import type { Resolution } from "../src/settings.js";
 import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
@@ -128,15 +129,29 @@ test("movie IMDb requests return full-film choices with Chinese names and labele
   assert.ok(streams.every(s => s.description.startsWith("测试电影 Movie\n") && /\nLanguage: Chinese\nSubtitle: Chinese\n(红牛|天堂)云播$/.test(s.description)));
 });
 
-test("reachable source choices rank first while client alternatives remain available", async () => {
+test("provider priority keeps preferred sources first while client alternatives remain available", async () => {
   const fixture = fixtures([drama()]);
   const fetcher = async (input: Parameters<typeof fetch>[0], options?: Parameters<typeof fetch>[1]) =>
     String(input).includes("hongniu.example") ? new Response("offline", { status: 503 }) : fixture.fetcher(input, options);
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fetcher, new MediaInspector(fetcher, fixture.probe));
   const streams = await service.streams("series", "tt26235088:1:1");
   assert.equal(streams.length, 2);
-  assert.equal(streams[0].description.split("\n").at(-1), "天堂云播");
-  assert.equal(streams[1].description.split("\n").at(-1), "红牛云播");
+  assert.equal(streams[0].description.split("\n").at(-1), "红牛云播");
+  assert.equal(streams[1].description.split("\n").at(-1), "天堂云播");
+  const reversed = new AddonService([...fixture.providers].reverse(), new MetadataResolver(fixture.fetcher, "fixture-key"), fetcher,
+    new MediaInspector(fetcher, fixture.probe));
+  assert.deepEqual((await reversed.streams("series", "tt26235088:1:1")).map(stream => stream.description.split("\n").at(-1)),
+    ["天堂云播", "红牛云播"]);
+});
+
+test("MKVDrama can be placed above all VOD providers", async t => {
+  const fixture = fixtures([drama()], 5), mkv = new MkvDrama();
+  t.mock.method(mkv, "streams", async () => [{ url: "https://cdn.example/Test.Drama.S01E01.1080p.mkv",
+    filename: "Test.Drama.S01E01.1080p.mkv", height: 1080, host: "PixelDrain" }]);
+  const service = new AddonService([mkv, ...fixture.providers], new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
+  const streams = await service.streams("series", "tt26235088:1:1");
+  assert.deepEqual(streams.map(stream => stream.description.split("\n").at(-1)),
+    ["MKVDrama · PixelDrain", "红牛云播", "天堂云播", "暴风云播", "量子云播", "优酷云播"]);
 });
 
 test("date-labelled variety uses the catalog episode's air date and excludes bonus cuts", async () => {

@@ -17,12 +17,37 @@ test("preferences default to all sources and persist independently of concurrent
   const store = await redis.open();
   const id = await store.save("0123456789abcdef0123456789abcdef");
   assert.deepEqual((await store.get(id))?.settings, defaultSettings());
-  const settings: Settings = { ...defaultSettings(), sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160] };
+  const settings: Settings = { ...defaultSettings(), sources: ["liangzi", "hongniu"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160] };
   await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
   const reopened = await redis.open();
   assert.deepEqual((await reopened.get(id))?.settings, settings);
   assert.equal((await reopened.get(id))?.apiKey, "11111111111111111111111111111111");
   assert.ok(!JSON.stringify([...redis.records.get(`mist:installation:${id}`)!.values()]).includes("11111111111111111111111111111111"));
+});
+
+test("provider layout persists independently of enabled providers", async () => {
+  const redis = installationFixture(), store = await redis.open();
+  const id = await store.save("0123456789abcdef0123456789abcdef");
+  const sourceOrder = ["youku", "hongniu", "mkvdrama", "tiantang", "liangzi", "baofeng"];
+  for (const sources of [["youku", "hongniu"], ["youku"], ["youku", "hongniu"]]) {
+    await store.saveSettings(id, { ...defaultSettings(), sources, sourceOrder });
+    const reopened = await redis.open();
+    const settings = (await reopened.get(id))!.settings;
+    assert.deepEqual(settings.sources, sources);
+    assert.deepEqual(settings.sourceOrder, sourceOrder, "disabling and re-enabling a provider must retain its saved position");
+  }
+});
+
+test("provider layout rejects incomplete, duplicate or unknown provider orders", () => {
+  const settings = defaultSettings(), ids = STREAM_SOURCES.map(source => source.id);
+  for (const sourceOrder of [[], ids.slice(1), [...ids, ids[0]], ids.map(() => ids[0]), [...ids.slice(1), "unknown"], null, "hongniu"]) {
+    assert.equal(parseSettings({ ...settings, sourceOrder }), undefined);
+  }
+});
+
+test("an unset provider layout retains the configured provider priority", () => {
+  const parsed = parseSettings({ sources: ["mkvdrama", "hongniu"], inspectionTimeoutMs: 6500 });
+  assert.deepEqual(parsed?.sourceOrder, ["mkvdrama", "hongniu", "tiantang", "baofeng", "liangzi", "youku"]);
 });
 
 test("preferences reject empty, duplicate or unknown sources and invalid time windows", () => {
@@ -78,7 +103,8 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   const providers = createProviders(TEST_SOURCES, fetcher);
   const factory = (key: string, settings: Settings) => {
     used.push(settings);
-    return new AddonService(providers.filter(p => settings.sources.includes(p.source.id)), new MetadataResolver(fetcher, key), fetcher,
+    return new AddonService(settings.sourceOrder.filter(id => settings.sources.includes(id)).flatMap(id => providers.filter(p => p.source.id === id)),
+      new MetadataResolver(fetcher, key), fetcher,
       new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs), settings.resolutions);
   };
   const replicaStore = await redis.open();
@@ -107,6 +133,20 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 5);
   const update = (settings: unknown, origin = base) => fetch(`${endpoint}/settings`, { method: "PUT",
     headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(settings) });
+  const ordered = { ...defaultSettings(), sourceOrder: ["youku", "liangzi", "baofeng", "tiantang", "hongniu", "mkvdrama"] };
+  assert.equal((await update(ordered)).status, 200);
+  assert.deepEqual((await (await fetch(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "saved priority must round-trip in order");
+  for (const url of [streamUrl, replicaStreamUrl]) {
+    assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
+      ["优酷云播", "量子云播", "暴风云播", "天堂云播", "红牛云播"], "reordering replaces warm services on every instance");
+  }
+  const disabled = { ...ordered, sources: ordered.sources.filter(id => id !== "baofeng") };
+  assert.equal((await update(disabled)).status, 200);
+  assert.deepEqual((await (await fetch(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "disabling a provider preserves its position");
+  for (const url of [streamUrl, replicaStreamUrl]) {
+    assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
+      ["优酷云播", "量子云播", "天堂云播", "红牛云播"], "disabled providers must be ignored in the saved priority order");
+  }
   const settings = { ...defaultSettings(), sources: ["hongniu"], inspectionTimeoutMs: 2000 };
   assert.equal((await update(settings, "https://unrelated.example")).status, 403);
   assert.equal((await update({ ...settings, sources: [] })).status, 400);

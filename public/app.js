@@ -43,13 +43,15 @@ async function api(path, options = {}) {
 }
 
 function renderSources() {
-  $('source-grid').innerHTML = state.config.providers.map(source => {
+  $('source-grid').innerHTML = state.draft.sourceOrder.map(id => {
+    const source = state.config.providers.find(source => source.id === id);
     const selected = state.draft.sources.includes(source.id);
     const name = source.id === 'mkvdrama' ? source.name : `${source.name}云播`;
-    return `<label class="source-option" for="source-${escape(source.id)}">
-      <span class="source-text"><strong>${escape(name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</span>
-      <span class="switch"><input id="source-${escape(source.id)}" data-source="${escape(source.id)}" type="checkbox" role="switch" aria-label="Use ${escape(name)}" ${selected ? 'checked' : ''}><span class="switch-track"></span></span>
-    </label>`;
+    return `<div class="source-option" data-source-row="${escape(source.id)}" role="listitem">
+      <button class="source-drag" type="button" data-reorder="${escape(source.id)}" aria-label="Reorder ${escape(name)}" aria-describedby="source-order-help" title="Drag to reorder, or use the arrow keys" ${state.saving ? 'disabled' : ''}><span aria-hidden="true">⠿</span></button>
+      <label class="source-text" for="source-${escape(source.id)}"><strong>${escape(name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</label>
+      <label class="switch"><input id="source-${escape(source.id)}" data-source="${escape(source.id)}" type="checkbox" role="switch" aria-label="Use ${escape(name)}" ${selected ? 'checked' : ''}><span class="switch-track"></span></label>
+    </div>`;
   }).join('');
   $('resolution-options').innerHTML = [...state.config.resolutions].sort((a, b) => (Number(b) || 0) - (Number(a) || 0)).map(resolution => {
     return `<label class="resolution-option">
@@ -95,11 +97,13 @@ function renderSaveBar() {
   const saved = state.config.settings;
   const dirty = saved.inspectionTimeoutMs !== state.draft.inspectionTimeoutMs ||
     saved.sources.length !== state.draft.sources.length || saved.sources.some(id => !state.draft.sources.includes(id)) ||
+    saved.sourceOrder.some((id, index) => id !== state.draft.sourceOrder[index]) ||
     saved.resolutions.length !== state.draft.resolutions.length || saved.resolutions.some(resolution => !state.draft.resolutions.includes(resolution));
   $('save-bar').hidden = !dirty;
   $('save-settings').disabled = state.saving || !state.draft.sources.length || !state.draft.resolutions.length;
   $('discard').disabled = state.saving;
   document.querySelectorAll('#source-grid input, #resolution-options input, #lookup-time, [data-time], #select-all').forEach(control => { control.disabled = state.saving; });
+  document.querySelectorAll('[data-reorder]').forEach(handle => { handle.disabled = state.saving; });
   $('save-hint').textContent = !state.draft.sources.length ? 'Select at least one source to continue.' :
     !state.draft.resolutions.length ? 'Select at least one resolution to continue.' : 'Applies to your current installation.';
 }
@@ -250,6 +254,108 @@ $('key-form').addEventListener('submit', async event => {
   }
 });
 
+function applySourceOrder(handle) {
+  const previous = state.draft.sourceOrder.indexOf(handle.dataset.reorder) + 1;
+  state.draft.sourceOrder = [...$('source-grid').children].map(row => row.dataset.sourceRow);
+  renderSelection();
+  const position = state.draft.sourceOrder.indexOf(handle.dataset.reorder) + 1;
+  const source = state.config.providers.find(source => source.id === handle.dataset.reorder);
+  if (position !== previous) $('source-order-status').textContent = `${source.name} moved to position ${position} of ${state.draft.sourceOrder.length}.`;
+  handle.focus();
+}
+
+let sourceDrag;
+function moveSourceDrag() {
+  const { row, handle, pointerId, floating, y, offsetY, reducedMotion } = sourceDrag;
+  const grid = $('source-grid'), top = y - offsetY;
+  floating.style.top = `${top}px`;
+  const rows = [...grid.children].filter(item => item !== row);
+  const gridTop = grid.getBoundingClientRect().top, center = top + row.offsetHeight / 2;
+  const next = rows.find(item => center < gridTop + item.offsetTop + item.offsetHeight / 2) || null;
+  if (row.nextElementSibling === next) return;
+  const positions = rows.map(item => [item, item.getBoundingClientRect().top]);
+  rows.forEach(item => item.getAnimations().forEach(animation => animation.cancel()));
+  grid.insertBefore(row, next);
+  handle.setPointerCapture(pointerId);
+  if (!reducedMotion) positions.forEach(([item, before]) => {
+    const distance = before - item.getBoundingClientRect().top;
+    if (distance) item.animate([{ transform: `translateY(${distance}px)` }, { transform: 'translateY(0)' }],
+      { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  });
+}
+
+function scrollSourceDrag() {
+  if (!sourceDrag) return;
+  const edge = 80, y = sourceDrag.y;
+  const distance = y < edge ? y - edge : y > innerHeight - edge ? y - innerHeight + edge : 0;
+  if (distance) {
+    window.scrollBy(0, Math.max(-12, Math.min(12, distance / 5)));
+    moveSourceDrag();
+  }
+  sourceDrag.frame = requestAnimationFrame(scrollSourceDrag);
+}
+
+function finishSourceDrag(event) {
+  if (!sourceDrag || event.pointerId !== sourceDrag.pointerId) return;
+  if (event.type === 'pointerup') { sourceDrag.y = event.clientY; moveSourceDrag(); }
+  const { row, handle, pointerId, floating, frame, reducedMotion } = sourceDrag;
+  sourceDrag = null;
+  cancelAnimationFrame(frame);
+  const landing = row.getBoundingClientRect();
+  row.classList.remove('dragging');
+  if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+  if (event.type === 'pointerup') {
+    applySourceOrder(handle);
+    if (reducedMotion) floating.remove();
+    else floating.animate([{ top: floating.style.top, opacity: 1, transform: 'scale(1.015)' },
+      { top: `${landing.top}px`, opacity: 0, transform: 'scale(1)' }], { duration: 140, easing: 'ease-out' }).onfinish = () => floating.remove();
+  } else {
+    floating.remove();
+    renderSources();
+    $('source-grid').querySelector(`[data-reorder="${handle.dataset.reorder}"]`).focus();
+  }
+}
+
+$('source-grid').addEventListener('pointerdown', event => {
+  const handle = event.target.closest('[data-reorder]');
+  if (!handle || handle.disabled || event.button !== 0 || sourceDrag) return;
+  event.preventDefault();
+  handle.focus();
+  const row = handle.closest('[data-source-row]'), bounds = row.getBoundingClientRect();
+  const floating = row.cloneNode(true);
+  floating.classList.add('source-floating');
+  floating.inert = true;
+  floating.setAttribute('aria-hidden', 'true');
+  floating.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+  Object.assign(floating.style, { top: `${bounds.top}px`, left: `${bounds.left}px`, width: `${bounds.width}px`, height: `${bounds.height}px` });
+  document.body.append(floating);
+  sourceDrag = { row, handle, floating, pointerId: event.pointerId, y: event.clientY, offsetY: event.clientY - bounds.top,
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches };
+  row.classList.add('dragging');
+  handle.setPointerCapture(event.pointerId);
+});
+$('source-grid').addEventListener('pointermove', event => {
+  if (!sourceDrag || event.pointerId !== sourceDrag.pointerId) return;
+  sourceDrag.y = event.clientY;
+  moveSourceDrag();
+  if (!sourceDrag.frame) sourceDrag.frame = requestAnimationFrame(scrollSourceDrag);
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => $('source-grid').addEventListener(type, finishSourceDrag));
+$('source-grid').addEventListener('keydown', event => {
+  if (sourceDrag) {
+    if (event.key === 'Escape') { event.preventDefault(); finishSourceDrag({ type: 'pointercancel', pointerId: sourceDrag.pointerId }); }
+    return;
+  }
+  const handle = event.target.closest('[data-reorder]');
+  if (!handle || handle.disabled || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const rows = [...$('source-grid').children];
+  const row = handle.closest('[data-source-row]'), from = rows.indexOf(row);
+  const to = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : from + (event.key === 'ArrowUp' ? -1 : 1);
+  if (to < 0 || to >= rows.length || to === from) return;
+  if (to < from) rows[to].before(row); else rows[to].after(row);
+  applySourceOrder(handle);
+});
 $('source-grid').addEventListener('change', () => {
   state.draft.sources = [...$('source-grid').querySelectorAll('input:checked')].map(input => input.dataset.source);
   renderSelection();
@@ -259,7 +365,7 @@ $('resolution-options').addEventListener('change', () => {
   renderSelection();
 });
 $('select-all').addEventListener('click', () => {
-  state.draft.sources = state.config.providers.map(source => source.id);
+  state.draft.sources = [...state.draft.sourceOrder];
   renderSources();
 });
 $('lookup-time').addEventListener('input', event => { state.draft.inspectionTimeoutMs = Number(event.target.value); renderLookup(); });
