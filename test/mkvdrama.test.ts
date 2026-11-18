@@ -27,7 +27,7 @@ const detail = (links: string, name = "Test Drama", year = 2024, type = "Drama")
 const anchor = (url: string) => `<a href="${url}">Link 1</a>`;
 
 function encrypted(text: string, key: Buffer) {
-  const iv = Buffer.from("03".repeat(12), "hex"), cipher = createCipheriv("aes-256-gcm", key, iv);
+  const iv = Buffer.from("03".repeat(12), "hex"), cipher = createCipheriv(key.length === 16 ? "aes-128-gcm" : "aes-256-gcm", key, iv);
   const bytes = Buffer.concat([cipher.update(text), cipher.final(), cipher.getAuthTag()]);
   return { d: bytes.toString("base64"), s: iv.toString("hex") };
 }
@@ -165,6 +165,48 @@ test("ViewCrate's encrypted file list selects the requested episode before resol
   const wrongEpisode = new MkvDrama((input, options) => String(input).endsWith("/episode2/info")
     ? Promise.resolve(Response.json({ name: filename.replace("E02", "E01") })) : fixture.fetcher(input, options));
   assert.deepEqual(await wrongEpisode.streams(lookupTitle, request), [], "a misleading container label must not return the wrong episode");
+});
+
+test("MKVDrama's encrypted on-site containers select the exact episode and verify supported hosts", async () => {
+  const name = "When I Meet the Moon", page = "/when-i-meet-the-moon-hye1suok", container = "/c/xAQ_signed-token";
+  const episodeFile = "When.I.Meet.the.Moon.S01E02.IQ.H264.1080p[MkvDrama.net].mkv";
+  const key = Buffer.from("04".repeat(16), "hex"), nonce = "05".repeat(16);
+  const payload = encrypted(JSON.stringify({ links: [
+    { label: episodeFile.replace("E02", "E01"), url: "https://pixeldrain.com/u/first" },
+    { label: episodeFile.replace("S01", "S02"), url: "https://pixeldrain.com/u/season2" },
+    { label: episodeFile, host: "pixeldrain", url: "https://fileditchvids.st/unsupported" },
+    { label: episodeFile, url: "https://pixeldrain.com.evil.example/u/unsafe" },
+    { label: episodeFile, quality: "1080p", url: "https://pixeldrain.com/u/moon2" },
+    { label: episodeFile, quality: "1080p", url: "https://send.now/moon2" }
+  ] }), key);
+  const masked = (bytes: Buffer) => JSON.stringify([[...bytes].map(byte => byte ^ 90), [...bytes].map(() => 90)]);
+  const fixture = site({
+    [`${origin}/search?q=When+I+Meet+the+Moon`]: card(name, page),
+    [origin + page]: detail(anchor("/c/abcdef"), name, 2026),
+    [`${origin}/c/abcdef`]: new Response(null, { status: 302, headers: { Location: container } }),
+    [origin + container]: new Response(`<div id="w" data-s="xAQ_signed-token" data-p="c"></div>
+      <div id="xd" data-n='${masked(Buffer.from(nonce))}' data-k='${masked(key)}'
+      data-v='${masked(Buffer.from(payload.s, "hex"))}'></div><script>throw new Error("must not execute")</script>`,
+      { headers: { "Set-Cookie": "container=session; Secure" } }),
+    [`${origin}${container}/p/${nonce}`]: Response.json({ d: payload.d }),
+    "https://send.now/moon2": `<main id="fv" data-name="${episodeFile}"></main><script id="xvp-config">${JSON.stringify({
+      sources: [{ src: `https://d1.datatransfer.to/d/sign/${episodeFile}` }]
+    })}</script>`
+  }, { moon2: { name: episodeFile, size: 1_000_000_000 } });
+  const lookupTitle = { names: [name], displayName: "折月亮", year: 2026, tmdbId: "moon" };
+  const files = await fixture.source.streams(lookupTitle, request);
+  assert.deepEqual(files.map(file => [file.filename, file.host]), [[episodeFile, "PixelDrain"], [episodeFile, "Send"]]);
+  assert.ok(!fixture.seen.some(item => /first|season2|unsupported|unsafe/.test(item.url)), "only exact episodes on supported hosts are requested");
+  const fetchPayload = fixture.seen.find(item => item.url.endsWith(`/p/${nonce}`))!;
+  assert.equal(new Headers(fetchPayload.options?.headers).get("Referer"), origin + container);
+  assert.equal(new Headers(fetchPayload.options?.headers).get("Cookie"), "container=session");
+  assert.equal(new Headers(fixture.seen.at(-1)?.options?.headers).get("Cookie"), null, "container cookies stay on MKVDrama");
+  const wrongEpisode = new MkvDrama(async (input, options) => String(input).endsWith("/moon2/info")
+    ? Response.json({ name: episodeFile.replace("E02", "E01") }) : String(input) === "https://send.now/moon2"
+      ? new Response(`<main id="fv" data-name="${episodeFile.replace("E02", "E01")}"></main><script id="xvp-config">${JSON.stringify({
+        sources: [{ src: `https://d1.datatransfer.to/d/sign/${episodeFile}` }]
+      })}</script>`) : fixture.fetcher(input, options));
+  assert.deepEqual(await wrongEpisode.streams(lookupTitle, request), [], "host filenames must confirm container labels");
 });
 
 test("matching rejects remakes and wrong types before following download links", async () => {

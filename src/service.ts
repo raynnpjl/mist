@@ -26,7 +26,9 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   const facts = [title.displayName, episode, info.height ? quality : undefined,
     info.width && info.height ? `${info.width}x${info.height}` : undefined, candidate.releaseType, ...codecTags(info), candidate.language];
   const filename = candidate.filename || facts.filter(Boolean).join(" ").replace(/[\\/:*?"<>|\r\n]/g, " ") + `.${extension}`;
-  return { name: !candidate.filename && info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P"), description, url: candidate.url,
+  const name = info.height && info.height > 1080 ? "4K" :
+    !candidate.filename && info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P");
+  return { name, description, url: candidate.url,
     behaviorHints: { notWebReady: Boolean(candidate.headers) || extension !== "mp4" || !candidate.url.startsWith("https:"),
       bingeGroup: `mist:${candidate.source.id}:${candidate.group}`, filename,
       ...(candidate.videoSize ? { videoSize: candidate.videoSize } : {}),

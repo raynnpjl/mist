@@ -17,7 +17,7 @@ test("preferences default to all sources and persist independently of concurrent
   const store = await redis.open();
   const id = await store.save("0123456789abcdef0123456789abcdef");
   assert.deepEqual((await store.get(id))?.settings, defaultSettings());
-  const settings: Settings = { ...defaultSettings(), sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500, resolutions: [720, 1080] };
+  const settings: Settings = { ...defaultSettings(), sources: ["hongniu", "liangzi"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160] };
   await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
   const reopened = await redis.open();
   assert.deepEqual((await reopened.get(id))?.settings, settings);
@@ -37,11 +37,12 @@ test("preferences reject empty, duplicate or unknown sources and invalid time wi
 
 test("resolution preferences default to all choices and reject empty, duplicate or unsupported choices", () => {
   const settings = { ...defaultSettings(), sources: ["mkvdrama"] };
-  assert.deepEqual(settings.resolutions, [360, 480, 720, 1080, "unknown"]);
-  for (const resolutions of [[], [720, 720], [1440], [2160], ["720"], "720", null]) {
+  assert.deepEqual(settings.resolutions, [360, 480, 720, 1080, 2160, "unknown"]);
+  for (const resolutions of [[], [720, 720], [1440], [4320], ["2160"], ["4K"], ["720"], "720", null]) {
     assert.equal(parseSettings({ ...settings, resolutions }), undefined);
   }
   assert.deepEqual(parseSettings({ ...settings, resolutions: [720] }), { ...settings, resolutions: [720] });
+  assert.deepEqual(parseSettings({ ...settings, resolutions: [2160] }), { ...settings, resolutions: [2160] });
   assert.deepEqual(parseSettings({ ...settings, resolutions: ["unknown"] }), { ...settings, resolutions: ["unknown"] });
 });
 
@@ -98,7 +99,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.deepEqual(JSON.parse(initial).providers, STREAM_SOURCES.map(({ id, name }) => ({ id, name })),
     "configuration must not expose provider endpoints or hostnames");
   assert.deepEqual(JSON.parse(initial).settings, defaultSettings());
-  assert.deepEqual(JSON.parse(initial).resolutions, [360, 480, 720, 1080, "unknown"]);
+  assert.deepEqual(JSON.parse(initial).resolutions, [360, 480, 720, 1080, 2160, "unknown"]);
   assert.equal(Object.hasOwn(JSON.parse(initial), "mkvdramaHosts"), false);
   const streamUrl = `${base}/${id}/stream/series/tt26235088:1:1.json`;
   const replicaStreamUrl = `${replicaBase}/${id}/stream/series/tt26235088:1:1.json`;

@@ -49,6 +49,19 @@ function services(site: ReturnType<typeof bundleSite>) {
   return { source, create, redis };
 }
 
+test("4K MKVDrama files are enabled by default, selectable separately, and keep their original filenames", async () => {
+  const filename = mkvFilename(2160);
+  for (const [selection, names] of [[RESOLUTIONS, ["4K", "720P"]], [[2160], ["4K"]], [[1080], []], [[720], ["720P"]]] as [Resolution[], string[]][]) {
+    const site = bundleSite(["2160p", "720p"], { file1080E2: filename }); site.state.send = false;
+    const cards = await services(site).create(selection).streams("series", "tmdb:210757:1:2");
+    assert.deepEqual(cards.map(card => card.name), names);
+    assert.equal(site.seen.some(({ url }) => url.pathname === "/bundle/1080/pixel"), selection.includes(2160),
+      "disabled 2160p bundles must be skipped before redirects and host metadata requests");
+    const fourK = cards.find(card => card.name === "4K");
+    if (fourK) assert.equal(fourK.behaviorHints.filename, filename);
+  }
+});
+
 test("disabled-only bundles cause no redirect, container or host requests and enabled cards stay complete", async () => {
   const baselineSite = bundleSite(), baseline = services(baselineSite);
   const all = await baseline.create().streams("series", "tmdb:210757:1:2");
