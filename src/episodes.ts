@@ -28,7 +28,8 @@ export function episodeFor(label: string, show: string, kind: Kind): Episode {
     const stamp = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
     const parsed = new Date(`${stamp}T00:00:00.000Z`);
     if (!Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(stamp)) {
-      const suffix = part(body.replace(normalized(date[0]), ""));
+      const suffix = part(body.replace(normalized(date[0]), "")
+        .replace(/^第(?:\d+|[零〇一二两三四五六七八九十百千]+)[集期话回]/, ""));
       return { key: `date:${stamp}:${suffix || "main"}`, title, released: parsed.toISOString() };
     }
   }

@@ -105,10 +105,15 @@ export class AddonService {
   }
 
   private async find(provider: Provider, title: Title, request: VideoRequest, episodeInfo: Promise<EpisodeInfo | undefined>): Promise<Candidate[]> {
-    const names = titleNames(title, request);
+    // TMDB keeps the four 奔跑吧兄弟 seasons before 奔跑吧 restarts its numbering in 2017.
+    const keepRunning = request.type === "series" && title.tmdbId === "98031";
+    const lookup = keepRunning && request.season! > 4 ? { ...request, season: request.season! - 4 } : request;
+    const lookupTitle = keepRunning ? { ...title,
+      names: [...new Set([request.season! > 4 ? "奔跑吧" : "奔跑吧兄弟", ...title.names])] } : title;
+    const names = titleNames(lookupTitle, lookup);
     const allowed = new Set(names.map(normalized));
-    const searches = request.season === 1 ? title.names : names;
-    for (const search of searches.slice(0, request.season! > 1 ? 6 : 3)) {
+    const searches = lookup.season === 1 ? lookupTitle.names : names;
+    for (const search of searches.slice(0, lookup.season! > 1 ? 6 : 3)) {
       for (let page = 1; page <= 5; page++) {
         const [data, info] = await Promise.all([provider.page(page, undefined, search), episodeInfo]);
         const year = request.season && request.season > 1 ? info?.year || title.year : title.year;
@@ -116,11 +121,12 @@ export class AddonService {
         for (const vod of data.items) {
           const kind = chineseKind(vod);
           const name = normalized(value(vod.vod_name));
+          const vodYear = value(vod.vod_year).replace(/\s*[（(][^）)]*[）)]$/, "");
           const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
-            value(vod.vod_year) === String(title.year);
+            vodYear === String(title.year);
           if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
-            (!collection && value(vod.vod_year) !== String(year)) || !allowed.has(name)) continue;
-          const parts = playables(vod, kind).filter(p => selected(p, vod, request, info));
+            (!collection && vodYear !== String(year)) || !allowed.has(name)) continue;
+          const parts = playables(vod, kind).filter(p => selected(p, vod, collection ? request : lookup, info));
           for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang), subtitles: "Chinese",
             url: part.url, group: part.group, releaseType: releaseType(vod) });
         }

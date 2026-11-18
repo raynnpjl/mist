@@ -44,3 +44,13 @@ test("variety dates, parts and bonus episodes remain separate", () => {
   const items = playables(drama(1, { vod_name: show, vod_play_url: labels.map((l, i) => `${l}$https://v.example/${i}.m3u8`).join("#") }), "variety");
   assert.equal(new Set(items.map(p => p.episode.key)).size, 4);
 });
+
+test("dated variety labels ignore redundant broadcast numbers and preserve parts and extras", () => {
+  for (const label of ["20260501", "第20260501期", "20260501第2期", "20260501（第二期）"]) {
+    assert.equal(episodeFor(label, "奔跑吧第十季", "variety").key, "date:2026-05-01:main", label);
+  }
+  for (const [label, suffix] of [["20260501第2期上", "上"], ["20260501（第2期下）", "下"],
+    ["20260501第2期加更", "加更"], ["20260501第2期会员版", "会员版"]]) {
+    assert.equal(episodeFor(label, "奔跑吧第十季", "variety").key, `date:2026-05-01:${suffix}`, label);
+  }
+});
