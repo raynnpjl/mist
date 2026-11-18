@@ -185,8 +185,9 @@ export class AddonService {
     }
     const inspected = [...unique.values()].filter(({ media }) => this.allowsResolution(media.height)).map(({ candidate, media }) => {
       return { stream: present(candidate, title, request, media),
+        priority: this.providers.findIndex(provider => provider.source.id === candidate.source.id),
         rank: Number(media.reachable) * 2 + Number(candidate.url.startsWith("https:")) };
     });
-    return inspected.sort((a, b) => b.rank - a.rank).map(item => item.stream);
+    return inspected.sort((a, b) => a.priority - b.priority || b.rank - a.rank).map(item => item.stream);
   }
 }

@@ -89,7 +89,9 @@
           <fieldset class="source-group">
             <legend>Providers</legend>
             <div class="sources-toolbar"><span id="selection-count" class="caption">6 enabled</span><button class="text-button" id="select-all">Enable all</button></div>
-            <div class="source-grid" id="source-grid"></div>
+            <p class="caption source-order-help" id="source-order-help">Drag to arrange providers. Top providers appear first.<span class="sr-only"> Focus a drag handle and use the arrow keys to reorder with a keyboard.</span></p>
+            <div class="source-grid" id="source-grid" role="list" aria-label="Provider priority"></div>
+            <span class="sr-only" id="source-order-status" role="status"></span>
           </fieldset>
           <fieldset class="source-group resolution-group" aria-describedby="resolution-help">
             <legend>Resolutions</legend>
