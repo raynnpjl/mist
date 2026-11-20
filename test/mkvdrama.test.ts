@@ -64,6 +64,22 @@ test("MKVDrama resolves episode/quality bundles with metadata requests only, pre
   assert.equal(fixture.seen.length, count, "repeat lookups cache URLs and metadata, not video");
 });
 
+test("paired download links find the OUO route in either position without requesting unsupported shorteners", async () => {
+  for (const routes of [["exe", "ouo"], ["ouo", "exe"]]) {
+    const encoded = Buffer.from("https://pixeldrain.com/u/episode2").toString("base64");
+    const fixture = site({
+      [`${origin}/search?q=Test+Drama`]: card(),
+      [`${origin}/123-test-drama`]: detail(routes.map((_, index) => anchor(`/123-test-drama/_c/link${index}`)).join("")),
+      ...Object.fromEntries(routes.map((route, index) => [`${origin}/123-test-drama/_c/link${index}`,
+        new Response(null, { status: 307, headers: { Location: route === "ouo" ?
+          `https://ouo.io/qs/episode?s=${encodeURIComponent(encoded)}` : "https://exe.io/unsupported" } })]))
+    }, { episode2: { name: filename } });
+    const files = await fixture.source.streams(title, request);
+    assert.deepEqual(files.map(file => file.filename), [filename]);
+    assert.ok(!fixture.seen.some(item => new URL(item.url).hostname === "exe.io"));
+  }
+});
+
 test("direct MKV URLs remain untouched and wrong seasons, trailers, archives and unsupported hosts are excluded", async () => {
   const correct = `https://cdn.example/${filename}?token=signed`;
   const fixture = site({
