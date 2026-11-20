@@ -207,7 +207,7 @@ export class MkvDrama {
   status() { return { ...MKVDRAMA_SOURCE, ...this.state }; }
 
   private lookup(onFile?: FileObserver, resolutions = RESOLUTIONS): Lookup {
-    return { signal: AbortSignal.timeout(this.timeout), budget: { remaining: 32 }, cookies: new Map(), refreshed: new Set(), invalid: new Set(), resolutions, onFile };
+    return { signal: AbortSignal.timeout(this.timeout), budget: { remaining: 96 }, cookies: new Map(), refreshed: new Set(), invalid: new Set(), resolutions, onFile };
   }
 
   private async read(url: string, lookup: Lookup, init: RequestInit = {}): Promise<{ text: string; redirect?: string }> {

@@ -230,20 +230,21 @@ test("failed metadata extraction never persists and can retry successfully", asy
   assert.deepEqual(redis.commands.map(c => c[0]), ["GET", "GET", "SET"]);
 });
 
-test("nested independent links retain one shared 32-page budget", async () => {
+test("nested independent links retain one shared 96-page budget", async () => {
   const site = cachedSite(); let requests = 0;
   const fetcher: typeof fetch = async (input, options) => {
     requests++;
     const url = new URL(String(input));
     if (url.pathname === "/drama") return new Response(`<div class="infox"><h1>Test Drama</h1><div class="spe"><span>Aired: 2024</span><span>Type: Drama</span></div></div>
-      <div class="soraddlx"><div class="soraurlx"><a href="https://filecrypt.cc/one">One</a><a href="https://filecrypt.cc/two">Two</a></div></div>`);
+      <div class="soraddlx"><div class="soraurlx">${Array.from({ length: 6 }, (_, n) =>
+      `<a href="https://filecrypt.cc/${n}">Bundle</a>`).join("")}</div></div>`);
     if (url.hostname === "filecrypt.cc") return new Response(`<ul class="link-list">${Array.from({ length: 16 }, (_, n) =>
       `<li><a href="https://pixeldrain.com/u/file${n + 1}E2">File</a></li>`).join("")}</ul>`);
     return site.fetcher(input, options);
   };
   const files = await new MkvDrama(fetcher).streams(mkvTitle, mkvRequest);
   assert.ok(files.length > 0);
-  assert.equal(requests, 32, "nested branches must not receive fresh budgets");
+  assert.equal(requests, 96, "nested branches must not receive fresh budgets");
 });
 
 test("a wide listing completes host chains before spending the shared budget on pending siblings", async () => {
@@ -252,22 +253,22 @@ test("a wide listing completes host chains before spending the shared budget on 
     requests++;
     const url = new URL(String(input));
     if (url.pathname === "/drama") return new Response(`<div class="infox"><h1>Test Drama</h1><div class="spe"><span>Aired: 2024</span><span>Type: Drama</span></div></div>
-      <div class="soraddlx"><div class="soraurlx">${Array.from({ length: 8 }, (_, n) =>
+      <div class="soraddlx"><div class="soraurlx">${Array.from({ length: 12 }, (_, n) =>
       `<a href="https://mkvdrama.net/chain/${n}/0">Bundle</a>`).join("")}</div></div>`);
     if (url.pathname.startsWith("/chain/")) {
       const [, , id, step] = url.pathname.split("/");
-      return new Response(null, { status: 302, headers: { Location: Number(step) < 5 ?
+      return new Response(null, { status: 302, headers: { Location: Number(step) < 6 ?
         `https://mkvdrama.net/chain/${id}/${Number(step) + 1}` : `https://pixeldrain.com/u/bundle${id}` } });
     }
     if (url.hostname === "pixeldrain.com") return Response.json({ success: true, name: mkvFilename(), size: 1_000_000 });
     return site.fetcher(input, options);
   };
   const files = await new MkvDrama(fetcher, 30_000, new DiscoveryStore({})).streams(mkvTitle, mkvRequest);
-  assert.equal(files.length, 4, "completed files must survive the same budget that the sequential resolver used");
-  assert.equal(requests, 32, "pending branches must not receive extra requests");
+  assert.equal(files.length, 11, "completed files must survive shared budget exhaustion");
+  assert.equal(requests, 96, "pending branches must not receive extra requests");
 });
 
-test("long gated bundles finish before another bundle consumes their shared host-verification budget", async () => {
+test("long gated bundles both complete host verification within the shared lookup budget", async () => {
   const site = cachedSite(); let requests = 0;
   const fetcher: typeof fetch = async (input, options) => {
     requests++;
@@ -294,8 +295,8 @@ test("long gated bundles finish before another bundle consumes their shared host
     return site.fetcher(input, options);
   };
   const files = await new MkvDrama(fetcher, 30_000, new DiscoveryStore({})).streams(mkvTitle, mkvRequest);
-  assert.equal(files.length, 1, "the first completed bundle must survive budget exhaustion in the next bundle");
-  assert.equal(requests, 32);
+  assert.equal(files.length, 2, "a later quality must retain its host links after the first gated bundle finishes");
+  assert.equal(requests, 34);
 });
 
 test("all five VOD providers and MKV hosts/qualities keep deterministic, identical cold/warm source cards", async () => {
