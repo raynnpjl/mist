@@ -148,6 +148,31 @@ test("provider priority keeps preferred sources first while client alternatives 
     ["天堂云播", "红牛云播"]);
 });
 
+test("resolution-first cards use displayed tiers, provider-order ties, and Unknown last", async t => {
+  const fixture = fixtures([drama()], 5), mkv = new MkvDrama();
+  t.mock.method(mkv, "streams", async () => [
+    { url: "https://cdn.example/unknown.mp4", filename: "Test.Drama.S01E01.mp4", host: "PixelDrain" },
+    { url: "https://cdn.example/1440.mp4", filename: "Test.Drama.S01E01.1440p.mp4", height: 1440, host: "PixelDrain" }
+  ]);
+  const heights: Record<string, number> = {
+    "hongniu.example": 536, "tiantang.example": 720, "baofeng.example": 800,
+    "liangzi.example": 480, "youku.example": 360
+  };
+  const inspector = new MediaInspector(fixture.fetcher, async url => ({ height: heights[new URL(url).hostname] }));
+  const create = (resolutionFirst: boolean, providers = [mkv, ...fixture.providers]) => new AddonService(providers,
+    new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector, undefined, undefined, resolutionFirst);
+  const sorted = await create(true).streams("series", "tt26235088:1:1");
+  assert.deepEqual(sorted.map(stream => stream.name), ["4K", "1080P", "720P", "720P", "480P", "360P", "Unknown"]);
+  assert.deepEqual(sorted.filter(stream => stream.name === "720P").map(stream => stream.description.split("\n").at(-1)),
+    ["红牛云播", "天堂云播"], "536p and 720p share a tier, so provider priority breaks the tie");
+  const reversed = await create(true, [mkv, ...fixture.providers].reverse()).streams("series", "tt26235088:1:1");
+  assert.deepEqual(reversed.map(stream => stream.name), sorted.map(stream => stream.name));
+  assert.deepEqual(reversed.filter(stream => stream.name === "720P").map(stream => stream.description.split("\n").at(-1)),
+    ["天堂云播", "红牛云播"]);
+  const unsorted = await create(false).streams("series", "tt26235088:1:1");
+  assert.deepEqual(unsorted.map(stream => stream.name), ["Unknown", "4K", "720P", "720P", "1080P", "480P", "360P"]);
+});
+
 test("MKVDrama can be placed above all VOD providers", async t => {
   const fixture = fixtures([drama()], 5), mkv = new MkvDrama();
   t.mock.method(mkv, "streams", async () => [{ url: "https://cdn.example/Test.Drama.S01E01.1080p.mkv",

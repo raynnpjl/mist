@@ -97,7 +97,7 @@ function catalogPart(name: string): string | undefined {
 export class AddonService {
   constructor(readonly providers: StreamProvider[], private metadata: MetadataResolver, fetcher: Fetcher = fetch,
     private inspector = new MediaInspector(fetcher), private resolutions = RESOLUTIONS,
-    private mkvInspector = new MkvHeaderInspector(fetcher)) {}
+    private mkvInspector = new MkvHeaderInspector(fetcher), private resolutionFirst = false) {}
 
   authenticate(): Promise<void> { return this.metadata.authenticate(); }
 
@@ -184,10 +184,12 @@ export class AddonService {
       for (const item of result.value) if (!unique.has(item.candidate.url)) unique.set(item.candidate.url, item);
     }
     const inspected = [...unique.values()].filter(({ media }) => this.allowsResolution(media.height)).map(({ candidate, media }) => {
-      return { stream: present(candidate, title, request, media),
+      const resolution = resolutionFor(media.height);
+      return { stream: present(candidate, title, request, media), resolution: typeof resolution === "number" ? resolution : 0,
         priority: this.providers.findIndex(provider => provider.source.id === candidate.source.id),
         rank: Number(media.reachable) * 2 + Number(candidate.url.startsWith("https:")) };
     });
-    return inspected.sort((a, b) => a.priority - b.priority || b.rank - a.rank).map(item => item.stream);
+    return inspected.sort((a, b) => (this.resolutionFirst ? b.resolution - a.resolution : 0) ||
+      a.priority - b.priority || b.rank - a.rank).map(item => item.stream);
   }
 }

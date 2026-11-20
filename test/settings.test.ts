@@ -17,7 +17,7 @@ test("preferences default to all sources and persist independently of concurrent
   const store = await redis.open();
   const id = await configuredInstallation(store, "0123456789abcdef0123456789abcdef");
   assert.deepEqual((await store.get(id))?.settings, defaultSettings());
-  const settings: Settings = { ...defaultSettings(), sources: ["liangzi", "hongniu"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160] };
+  const settings: Settings = { ...defaultSettings(), sources: ["liangzi", "hongniu"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160], resolutionFirst: true };
   await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
   const reopened = await redis.open();
   assert.deepEqual((await reopened.get(id))?.settings, settings);
@@ -71,6 +71,20 @@ test("resolution preferences default to all choices and reject empty, duplicate 
   assert.deepEqual(parseSettings({ ...settings, resolutions: ["unknown"] }), { ...settings, resolutions: ["unknown"] });
 });
 
+test("resolution-first ordering defaults off and accepts only booleans", () => {
+  const settings = defaultSettings();
+  assert.equal(settings.resolutionFirst, false);
+  const saved: Partial<Settings> = { ...settings };
+  delete saved.resolutionFirst;
+  assert.deepEqual(parseSettings(saved), settings);
+  for (const resolutionFirst of [true, false]) {
+    assert.equal(parseSettings({ ...settings, resolutionFirst })?.resolutionFirst, resolutionFirst);
+  }
+  for (const resolutionFirst of [null, "true", "false", 0, 1, [], {}]) {
+    assert.equal(parseSettings({ ...settings, resolutionFirst }), undefined);
+  }
+});
+
 test("pending status checks do not consume stream-search slots", async () => {
   const fixture = fixtures([drama()], 5);
   let release!: () => void, searches = 0;
@@ -101,11 +115,18 @@ test("dashboard preferences affect streams and inspection budgets, while status 
     return fixture.fetcher(input, options);
   };
   const providers = createProviders(TEST_SOURCES, fetcher);
+  const heights: Record<string, number | undefined> = {
+    "hongniu.example": 1080, "tiantang.example": 800, "baofeng.example": undefined,
+    "liangzi.example": 2160, "youku.example": 536
+  };
   const factory = (key: string, settings: Settings) => {
     used.push(settings);
     return new AddonService(settings.sourceOrder.filter(id => settings.sources.includes(id)).flatMap(id => providers.filter(p => p.source.id === id)),
       new MetadataResolver(fetcher, key), fetcher,
-      new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs), settings.resolutions);
+      new MediaInspector(fetcher, async (url, timeout) => {
+        budgets.push(timeout);
+        return { ...await fixture.probe(url, timeout), height: heights[new URL(url).hostname] };
+      }, settings.inspectionTimeoutMs), settings.resolutions, undefined, settings.resolutionFirst);
   };
   const replicaStore = await redis.open();
   const server = createApp(store, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
@@ -146,6 +167,18 @@ test("dashboard preferences affect streams and inspection budgets, while status 
     assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
       ["优酷云播", "量子云播", "暴风云播", "天堂云播", "红牛云播"], "reordering replaces warm services on every instance");
   }
+  for (const resolutionFirst of [true, false]) {
+    const response = await update({ ...ordered, resolutionFirst });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).settings.resolutionFirst, resolutionFirst);
+    assert.equal((await (await request(endpoint)).json()).settings.resolutionFirst, resolutionFirst);
+    for (const url of [streamUrl, replicaStreamUrl]) {
+      assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
+        resolutionFirst ? ["量子云播", "天堂云播", "红牛云播", "优酷云播", "暴风云播"] :
+          ["优酷云播", "量子云播", "暴风云播", "天堂云播", "红牛云播"],
+        "changing card order must replace warm services on every instance");
+    }
+  }
   const disabled = { ...ordered, sources: ordered.sources.filter(id => id !== "baofeng") };
   assert.equal((await update(disabled)).status, 200);
   assert.deepEqual((await (await request(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "disabling a provider preserves its position");
@@ -157,6 +190,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.equal((await update(settings, "https://unrelated.example")).status, 403);
   assert.equal((await update({ ...settings, sources: [] })).status, 400);
   assert.equal((await update({ ...settings, resolutions: [] })).status, 400);
+  assert.equal((await update({ ...settings, resolutionFirst: "true" })).status, 400);
   assert.equal((await update(settings)).status, 200);
   assert.deepEqual((await store.get(id))?.settings, settings);
   budgets.length = 0; used.length = 0;

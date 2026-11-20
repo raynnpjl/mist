@@ -1,6 +1,6 @@
 {
   "name": "mist",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "description": "Chinese streaming sources for existing Stremio and Nuvio catalogs",
   "engines": {
