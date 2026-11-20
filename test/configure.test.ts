@@ -6,7 +6,7 @@ import { createApp } from "../src/app.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { AddonService } from "../src/service.js";
 import { HlsPlaylists } from "../src/hls.js";
-import { drama, fixtures, installationFixture } from "./fixtures.js";
+import { accessCookie, drama, fixtures, installationFixture } from "./fixtures.js";
 
 test("website validates and encrypts keys, serves private addon routes, and updates active installations", async t => {
   const redis = installationFixture();
@@ -25,23 +25,24 @@ test("website validates and encrypts keys, serves private addon routes, and upda
     return new AddonService(fixture.providers, new MetadataResolver(fetcher, key), fetcher, fixture.inspector);
   };
   const replicaStore = await redis.open();
-  const server = createApp(store, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
-  const replica = createApp(replicaStore, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
+  const server = createApp(store, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
+  const replica = createApp(replicaStore, factory, fixture.providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   t.after(async () => {
     await Promise.all([server, replica].map(instance => new Promise<void>((resolve, reject) => instance.close(error => error ? reject(error) : resolve()))));
   });
   await Promise.all([once(server, "listening"), once(replica, "listening")]);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const replicaBase = `http://127.0.0.1:${(replica.address() as AddressInfo).port}`;
+  const cookie = await accessCookie(base);
   const post = (data: unknown, headers = {}) => fetch(`${base}/api/configure`, { method: "POST",
-    headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(data) });
+    headers: { "Content-Type": "application/json", Cookie: cookie, ...headers }, body: JSON.stringify(data) });
   const html = await (await fetch(`${base}/configure`)).text();
   assert.match(html, /type="password"/);
   assert.match(html, /DMCA Notice/);
   assert.match(html, /Continue/);
   assert.equal((await post({ apiKey: "invalid" })).status, 400);
   assert.equal((await post({ apiKey: "f".repeat(32) })).status, 400);
-  assert.equal(redis.records.size, 0, "invalid keys must not be saved");
+  assert.equal([...redis.records.values()].filter(row => row.credential !== null).length, 0, "invalid keys must not be saved");
   const apiKey = "0123456789abcdef0123456789abcdef";
   assert.equal((await post({ apiKey }, { Origin: "https://unrelated.example" })).status, 403);
   const response = await post({ apiKey }, { Origin: base });

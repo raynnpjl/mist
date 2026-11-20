@@ -41,6 +41,7 @@
       <button class="wordmark" id="brand" aria-label="Mist overview"><svg class="icon brand-icon"><use href="#i-wind"/></svg><span>Mist</span></button>
       <div class="topbar-actions">
         <span class="connection" id="connection" hidden><span class="status-dot"></span>TMDB connected</span>
+        <button class="text-button" id="sign-out" hidden>Sign out</button>
         <button class="icon-button" data-theme-toggle aria-label="Switch to dark mode"><svg class="icon"><use href="#i-moon"/></svg></button>
       </div>
     </div>
@@ -49,8 +50,8 @@
   <section class="welcome" id="welcome" aria-label="Welcome to Mist">
     <svg class="welcome-icon icon"><use href="#i-wind"/></svg>
     <h1>Mist</h1>
-    <p>An exclusive chinese HTTP addon</p>
-    <span class="caption" id="welcome-status">Connect TMDB to open your workspace.</span>
+    <p>An HTTP addon</p>
+    <span class="caption" id="welcome-status">Enter your private access key to open your workspace.</span>
     <button class="button secondary" id="retry-workspace" hidden>Try again</button>
   </section>
 
@@ -68,7 +69,7 @@
 
     <main class="content" id="main-content">
       <section class="view" id="view-overview" aria-labelledby="overview-title">
-        <div class="page-heading"><span class="eyebrow">OVERVIEW</span><h1 id="overview-title">Welcome to Mist</h1><p>An exclusive HTTP addon made for chinese content</p></div>
+        <div class="page-heading"><span class="eyebrow">OVERVIEW</span><h1 id="overview-title">Welcome to Mist</h1><p>An HTTP addon made for streaming content</p></div>
         <div class="summary-grid">
           <button class="summary-card" data-go="sources"><span class="summary-label"><svg class="icon"><use href="#i-layers"/></svg>Selected sources</span><strong id="summary-sources">5 <small>/ 5</small></strong><span class="caption">Only the ones you choose</span></button>
           <button class="summary-card" data-go="preferences"><span class="summary-label"><svg class="icon"><use href="#i-clock"/></svg>Detail lookup</span><strong id="summary-lookup">6.5 <small>seconds</small></strong><span class="caption">Your balance of speed and detail</span></button>
@@ -143,13 +144,13 @@
 
   <dialog id="key-dialog" class="modal key-modal" aria-labelledby="key-title" aria-describedby="key-description">
     <div class="key-modal-top"><div class="key-brand"><span class="key-mark"><svg class="icon"><use href="#i-wind"/></svg></span><span>Mist</span></div></div>
-    <h2 id="key-title">TMDB Key Required</h2><p id="key-description">Connect TMDB to match your TMDB-powered catalog with the right information</p>
+    <h2 id="key-title">Access Key Required</h2><p id="key-description">Enter your access key to continue to TMDB setup.</p>
     <form id="key-form">
-      <label class="field-label" for="api-key">TMDB API key</label><input id="api-key" name="apiKey" type="password" required minlength="32" maxlength="32" pattern="[a-fA-F0-9]{32}" autocomplete="off" spellcheck="false" placeholder="Your TMDB API key" aria-describedby="key-help">
-      <p class="fine-print" id="key-help"><svg class="icon"><use href="#i-lock"/></svg>Encrypted and saved on the server</p>
+      <label class="field-label" id="key-label" for="api-key">Private Access Key</label><input id="api-key" name="accessKey" type="password" required minlength="64" maxlength="64" pattern="[a-f0-9]{64}" autocomplete="off" spellcheck="false" placeholder="Your private access key" aria-describedby="key-help">
+      <p class="fine-print" id="key-help"><svg class="icon"><use href="#i-lock"/></svg>Contact Mist's developer for support</p>
       <p class="form-error" id="key-error" role="alert" hidden></p>
       <div class="key-actions"><button class="button secondary" id="cancel-key" type="button" hidden>Cancel</button><button class="button primary" id="save-key" type="submit">Continue <svg class="icon"><use href="#i-arrow"/></svg></button></div>
-      <p class="key-link">Need a key? <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">Get one from TMDB <svg class="icon"><use href="#i-external"/></svg></a></p>
+      <p class="key-link" id="tmdb-key-link" hidden>Need a key? <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">Get one from TMDB <svg class="icon"><use href="#i-external"/></svg></a></p>
     </form>
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

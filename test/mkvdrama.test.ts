@@ -12,7 +12,7 @@ import { createApp } from "../src/app.js";
 import { HlsPlaylists } from "../src/hls.js";
 import { defaultSettings, parseSettings } from "../src/settings.js";
 import { MkvHeaderInspector } from "../src/mkv-metadata.js";
-import { drama, fixtures, installationFixture } from "./fixtures.js";
+import { accessCookie, configuredInstallation, drama, fixtures, installationFixture } from "./fixtures.js";
 
 const origin = "https://mkvdrama.net";
 const title = { names: ["Test Drama", "测试剧"], displayName: "测试剧", year: 2024, tmdbId: "210757" };
@@ -321,12 +321,12 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   const headerInspector = new MkvHeaderInspector(fetcher, async () => ({ format: { duration: "4" }, streams: [
     { codec_type: "subtitle", tags: { language: "eng" } }, { codec_type: "subtitle", tags: { language: "chi" } }
   ] }));
-  const id = await store.save("01".repeat(16));
+  const id = await configuredInstallation(store, "01".repeat(16));
   await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"] });
   const factory = (key: string, settings: ReturnType<typeof defaultSettings>) => new AddonService(
     settings.sources.includes("mkvdrama") ? [source] : [], new MetadataResolver(fetcher, key), fetcher,
     new MediaInspector(fetcher, async () => { assert.fail("MKVDrama must not invoke an unbounded URL probe"); }), settings.resolutions, headerInspector);
-  const server = createApp(store, factory, [source], new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
+  const server = createApp(store, factory, [source], new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -348,7 +348,7 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
     "the player needs Send's file-page Referer to open the direct CDN URL");
   assert.equal(send[0].description, "Test Drama 测试剧 S01E02\nBitrate: 2 Mbps\nLanguage: Chinese\nSubtitle: Multiple\nMKVDrama · Send");
   assert.ok(headerRequests.some(request => request.headers.get("Referer") === "https://send.now/second"));
-  const config = await (await fetch(`${base}/api/installations/${id}`)).json();
+  const config = await (await fetch(`${base}/api/installations/${id}`, { headers: { Cookie: await accessCookie(base) } })).json();
   assert.ok(config.providers.some(provider => provider.id === "mkvdrama"));
   assert.equal(Object.hasOwn(config, "mkvdramaHosts"), false);
   await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"], resolutions: [720] });

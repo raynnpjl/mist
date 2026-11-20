@@ -10,24 +10,24 @@ import { createProviders, STREAM_SOURCES } from "../src/providers.js";
 import { MetadataResolver } from "../src/metadata.js";
 import { MediaInspector } from "../src/media.js";
 import { AddonService } from "../src/service.js";
-import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
+import { accessCookie, configuredInstallation, drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
 test("preferences default to all sources and persist independently of concurrent encrypted key updates", async () => {
   const redis = installationFixture();
   const store = await redis.open();
-  const id = await store.save("0123456789abcdef0123456789abcdef");
+  const id = await configuredInstallation(store, "0123456789abcdef0123456789abcdef");
   assert.deepEqual((await store.get(id))?.settings, defaultSettings());
   const settings: Settings = { ...defaultSettings(), sources: ["liangzi", "hongniu"], inspectionTimeoutMs: 2500, resolutions: [720, 1080, 2160] };
   await Promise.all([store.saveSettings(id, settings), store.save("11111111111111111111111111111111", id)]);
   const reopened = await redis.open();
   assert.deepEqual((await reopened.get(id))?.settings, settings);
   assert.equal((await reopened.get(id))?.apiKey, "11111111111111111111111111111111");
-  assert.ok(!JSON.stringify([...redis.records.get(`mist:installation:${id}`)!.values()]).includes("11111111111111111111111111111111"));
+  assert.ok(!JSON.stringify(redis.records.get(id)).includes("11111111111111111111111111111111"));
 });
 
 test("provider layout persists independently of enabled providers", async () => {
   const redis = installationFixture(), store = await redis.open();
-  const id = await store.save("0123456789abcdef0123456789abcdef");
+  const id = await configuredInstallation(store, "0123456789abcdef0123456789abcdef");
   const sourceOrder = ["youku", "hongniu", "mkvdrama", "tiantang", "liangzi", "baofeng"];
   for (const sources of [["youku", "hongniu"], ["youku"], ["youku", "hongniu"]]) {
     await store.saveSettings(id, { ...defaultSettings(), sources, sourceOrder });
@@ -108,19 +108,25 @@ test("dashboard preferences affect streams and inspection budgets, while status 
       new MediaInspector(fetcher, async (url, timeout) => { budgets.push(timeout); return fixture.probe(url, timeout); }, settings.inspectionTimeoutMs), settings.resolutions);
   };
   const replicaStore = await redis.open();
-  const server = createApp(store, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
-  const replica = createApp(replicaStore, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher)).listen(0, "127.0.0.1");
+  const server = createApp(store, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
+  const replica = createApp(replicaStore, factory, providers, new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   t.after(async () => {
     await Promise.all([server, replica].map(instance => new Promise<void>((resolve, reject) => instance.close(error => error ? reject(error) : resolve()))));
   });
   await Promise.all([once(server, "listening"), once(replica, "listening")]);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const replicaBase = `http://127.0.0.1:${(replica.address() as AddressInfo).port}`;
+  const cookie = await accessCookie(base);
+  const request = (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers);
+    headers.set("Cookie", cookie);
+    return fetch(url, { ...options, headers });
+  };
   const key = "0123456789abcdef0123456789abcdef";
-  const response = await fetch(`${base}/api/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey: key }) });
+  const response = await request(`${base}/api/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey: key }) });
   const { installation: id } = await response.json();
   const endpoint = `${base}/api/installations/${id}`;
-  const initial = await (await fetch(endpoint)).text();
+  const initial = await (await request(endpoint)).text();
   assert.ok(!initial.includes(key));
   assert.deepEqual(JSON.parse(initial).providers, STREAM_SOURCES.map(({ id, name }) => ({ id, name })),
     "configuration must not expose provider endpoints or hostnames");
@@ -131,18 +137,18 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   const replicaStreamUrl = `${replicaBase}/${id}/stream/series/tt26235088:1:1.json`;
   assert.equal((await (await fetch(streamUrl)).json()).streams.length, 5);
   assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 5);
-  const update = (settings: unknown, origin = base) => fetch(`${endpoint}/settings`, { method: "PUT",
+  const update = (settings: unknown, origin = base) => request(`${endpoint}/settings`, { method: "PUT",
     headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(settings) });
   const ordered = { ...defaultSettings(), sourceOrder: ["youku", "liangzi", "baofeng", "tiantang", "hongniu", "mkvdrama"] };
   assert.equal((await update(ordered)).status, 200);
-  assert.deepEqual((await (await fetch(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "saved priority must round-trip in order");
+  assert.deepEqual((await (await request(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "saved priority must round-trip in order");
   for (const url of [streamUrl, replicaStreamUrl]) {
     assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
       ["优酷云播", "量子云播", "暴风云播", "天堂云播", "红牛云播"], "reordering replaces warm services on every instance");
   }
   const disabled = { ...ordered, sources: ordered.sources.filter(id => id !== "baofeng") };
   assert.equal((await update(disabled)).status, 200);
-  assert.deepEqual((await (await fetch(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "disabling a provider preserves its position");
+  assert.deepEqual((await (await request(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "disabling a provider preserves its position");
   for (const url of [streamUrl, replicaStreamUrl]) {
     assert.deepEqual((await (await fetch(url)).json()).streams.map(stream => stream.description.split("\n").at(-1)),
       ["优酷云播", "量子云播", "天堂云播", "红牛云播"], "disabled providers must be ignored in the saved priority order");
@@ -166,7 +172,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.equal((await update({ ...settings, resolutions: [720] })).status, 200);
   assert.deepEqual((await (await fetch(streamUrl)).json()).streams, [], "resolution changes must replace cached stream results");
   assert.deepEqual((await (await fetch(replicaStreamUrl)).json()).streams, [], "saved resolutions apply on other instances");
-  const status = await (await fetch(`${endpoint}/status`)).json();
+  const status = await (await request(`${endpoint}/status`)).json();
   assert.equal(status.providers.length, 5);
   assert.equal(status.providers.find(p => p.id === "baofeng").available, false);
   assert.equal(status.providers.filter(p => p.available).length, 4);
@@ -175,9 +181,9 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   await assert.doesNotReject(providers.find(p => p.source.id === "baofeng")!.page(1, undefined, "new-search"),
     "a failed status probe must not place working stream searches in cooldown");
   const checks = fixture.requests.filter(url => url.searchParams.get("ac") === "list").length;
-  await fetch(`${endpoint}/status`);
+  await request(`${endpoint}/status`);
   assert.equal(fixture.requests.filter(url => url.searchParams.get("ac") === "list").length, checks);
-  assert.equal((await fetch(`${base}/api/installations/${"a".repeat(48)}`)).status, 404);
+  assert.equal((await request(`${base}/api/installations/${"a".repeat(48)}`)).status, 404);
   assert.equal((await fetch(`${base}/assets/styles.css`)).status, 200);
   assert.equal((await fetch(`${base}/assets/app.js`)).status, 200);
 });
