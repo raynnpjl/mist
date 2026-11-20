@@ -37,7 +37,7 @@ export class MetadataResolver {
 
   private json(url: URL): Promise<any> {
     return this.responses.get(url.href, 6 * 60 * 60_000, () => this.pool.run(async () => {
-      const response = await this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.0 (Stremio addon)", Accept: "application/json" },
+      const response = await this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.1 (Stremio addon)", Accept: "application/json" },
         signal: AbortSignal.timeout(this.timeout) });
       if (response.status === 404) { await response.body?.cancel(); return undefined; }
       if (!response.ok) {

@@ -62,6 +62,16 @@ test("4K MKVDrama files are enabled by default, selectable separately, and keep 
   }
 });
 
+test("MKVDrama titles round 540p up to 720P while preserving the original filename", async () => {
+  const filename = mkvFilename(540);
+  const site = bundleSite(["540p", "720p"], { file1080E2: filename }); site.state.send = false;
+  const cards = await services(site).create([720]).streams("series", "tmdb:210757:1:2");
+  const card = cards.find(card => card.url.endsWith("file1080E2"));
+  assert.ok(card);
+  assert.equal(card.name, "720P");
+  assert.equal(card.behaviorHints.filename, filename);
+});
+
 test("disabled-only bundles cause no redirect, container or host requests and enabled cards stay complete", async () => {
   const baselineSite = bundleSite(), baseline = services(baselineSite);
   const all = await baseline.create().streams("series", "tmdb:210757:1:2");

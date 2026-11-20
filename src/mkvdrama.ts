@@ -9,7 +9,7 @@ import { normalized, webUrl } from "./model.js";
 import type { Fetcher } from "./providers.js";
 import { resolveOuo } from "./ouo.js";
 import { MKVDRAMA_HOSTS, fileHost, hostLabel, resolveSend } from "./filehosts.js";
-import { RESOLUTIONS, Resolution } from "./resolutions.js";
+import { RESOLUTIONS, Resolution, resolutionFor } from "./resolutions.js";
 
 export const MKVDRAMA_SOURCE = { id: "mkvdrama", name: "MKVDrama" };
 export interface MkvFile { url: string; filename: string; size?: number; version?: string; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
@@ -185,7 +185,7 @@ function disabledBundle(quality: string, url: string | undefined, text: string, 
     }
   }
   if ([...hints.matchAll(new RegExp(HEIGHT, "gi"))].some(hint => Number(hint[1]) !== height)) return false;
-  const resolution = RESOLUTIONS.find(value => typeof value === "number" && height <= value);
+  const resolution = resolutionFor(height);
   return resolution === undefined || !resolutions.includes(resolution);
 }
 

@@ -45,22 +45,26 @@ test("IMDb and TMDB episodes return Mist sources without any catalog or metadata
   assert.ok(second.length && second.every(s => s.url.endsWith("/2.m3u8")));
 });
 
-test("source titles label HD as 1080P and the 2160 tier as 4K while preserving actual dimensions", async () => {
-  for (const height of [360, 480, 606, 720, 721, 768, 800, 900, 1080, 1081, 1440, 1600, 2160]) {
+test("source titles round up to standard resolution tiers while preserving actual dimensions", async () => {
+  for (const [height, name] of [
+    [360, "360P"], [361, "480P"], [480, "480P"], [481, "720P"], [536, "720P"], [606, "720P"],
+    [720, "720P"], [721, "1080P"], [768, "1080P"], [800, "1080P"], [900, "1080P"], [1080, "1080P"],
+    [1081, "4K"], [1440, "4K"], [1600, "4K"], [2160, "4K"]
+  ] as const) {
     const fixture = fixtures([drama()], 1);
     const width = height > 1080 ? 3840 : 1920;
     const inspector = new MediaInspector(fixture.fetcher, async () => ({ width, height }));
     const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
     const streams = await service.streams("series", "tt26235088:1:1");
     assert.equal(streams.length, 1);
-    assert.equal(streams[0].name, height > 1080 ? "4K" : height > 720 ? "1080P" : `${height}P`, `height ${height}`);
+    assert.equal(streams[0].name, name, `height ${height}`);
     assert.ok(streams[0].behaviorHints.filename.includes(`${height}p ${width}x${height}`));
   }
 });
 
 test("resolution preferences filter detected streams, group cropped heights, and select unknown separately", async () => {
   for (const [height, resolutions, count] of [
-    [360, [360], 1], [480, [360], 0], [480, [480], 1], [606, [720], 1],
+    [360, [360], 1], [480, [360], 0], [480, [480], 1], [536, [720, 1080, 2160, "unknown"], 1], [606, [720], 1],
     [720, [1080], 0], [800, [1080], 1], [1080, [720, 1080], 1],
     [1440, [360, 480, 720, 1080, "unknown"], 0], [1440, [2160], 1],
     [2160, [2160], 1], [2160, [1080], 0], [2160, ["unknown"], 0],
