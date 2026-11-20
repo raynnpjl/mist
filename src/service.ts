@@ -5,7 +5,7 @@ import { Playable, Vod, chineseKind, normalized, value } from "./model.js";
 import { Fetcher, Provider } from "./providers.js";
 import { DirectStream } from "./protocol.js";
 import { MkvDrama, MkvFile } from "./mkvdrama.js";
-import { RESOLUTIONS } from "./settings.js";
+import { RESOLUTIONS, resolutionFor } from "./resolutions.js";
 import { MkvHeaderInspector, MkvMetadata } from "./mkv-metadata.js";
 
 export type StreamProvider = Provider | MkvDrama;
@@ -26,8 +26,8 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   const facts = [title.displayName, episode, info.height ? quality : undefined,
     info.width && info.height ? `${info.width}x${info.height}` : undefined, candidate.releaseType, ...codecTags(info), candidate.language];
   const filename = candidate.filename || facts.filter(Boolean).join(" ").replace(/[\\/:*?"<>|\r\n]/g, " ") + `.${extension}`;
-  const name = info.height && info.height > 1080 ? "4K" :
-    !candidate.filename && info.height && info.height > 720 ? "1080P" : quality.replace(/p$/, "P");
+  const resolution = resolutionFor(info.height);
+  const name = resolution === 2160 ? "4K" : typeof resolution === "number" ? `${resolution}P` : "Unknown";
   return { name, description, url: candidate.url,
     behaviorHints: { notWebReady: Boolean(candidate.headers) || extension !== "mp4" || !candidate.url.startsWith("https:"),
       bingeGroup: `mist:${candidate.source.id}:${candidate.group}`, filename,
@@ -102,7 +102,7 @@ export class AddonService {
   authenticate(): Promise<void> { return this.metadata.authenticate(); }
 
   private allowsResolution(height?: number): boolean {
-    const resolution = height ? RESOLUTIONS.find(value => typeof value === "number" && height <= value) : "unknown";
+    const resolution = resolutionFor(height);
     return resolution !== undefined && this.resolutions.includes(resolution);
   }
 

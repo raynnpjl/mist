@@ -10,7 +10,7 @@ import { defaultSettings, parseSettings, RESOLUTIONS, Settings } from "./setting
 import { accessGate } from "./access.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.4.0", name: "Mist",
+  id: "org.mist.chinese", version: "1.4.1", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
