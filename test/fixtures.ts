@@ -2,35 +2,58 @@ import { Pool } from "../src/cache.js";
 import { Fetcher, Provider, SOURCES } from "../src/providers.js";
 import { Vod } from "../src/model.js";
 import { MediaInspector, MediaProbe } from "../src/media.js";
-import { Installations } from "../src/installations.js";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { Accounts, AccountQuery } from "../src/accounts.js";
+import { defaultSettings } from "../src/settings.js";
 
 export const TEST_SOURCES = SOURCES.map(source => ({ ...source, url: `https://${source.id}.example/api.php/provide/vod` }));
+export const TEST_ACCESS_KEY = "a1".repeat(32);
+export const TEST_ENCRYPTION_KEY = "01".repeat(32);
+
+export async function configuredInstallation(store: Accounts, apiKey: string): Promise<string> {
+  let account = (await store.authenticate(TEST_ACCESS_KEY))!;
+  if (account.configured) {
+    const created = await store.createAccessKey();
+    account = (await store.authenticate(created.accessKey))!;
+  }
+  return store.save(apiKey, account.installation);
+}
+
+export async function accessCookie(base: string): Promise<string> {
+  const response = await fetch(`${base}/api/access`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accessKey: TEST_ACCESS_KEY }) });
+  if (!response.ok) throw new Error("Fixture access verification failed");
+  return response.headers.get("set-cookie")!.split(";")[0];
+}
 
 export function installationFixture() {
-  const env = { UPSTASH_REDIS_REST_URL: "https://redis.example", UPSTASH_REDIS_REST_TOKEN: "fixture-token",
-    MIST_ENCRYPTION_KEY: "01".repeat(32) };
-  const records = new Map<string, Map<string, string>>();
-  const fetcher: Fetcher = async (input, options) => {
-    const headers = new Headers(options?.headers);
-    if (String(input) !== env.UPSTASH_REDIS_REST_URL || options?.method !== "POST" ||
-      headers.get("Authorization") !== `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}` || headers.get("Content-Type") !== "application/json") {
-      throw new Error("Invalid Redis REST request");
+  const env = { DATABASE_URL: "postgresql://fixture:fixture@fixture.neon.tech/mist?sslmode=require", MIST_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY };
+  const records = new Map<string, Record<string, unknown>>();
+  const installation = randomBytes(24).toString("hex"), id = randomUUID();
+  records.set(installation, { id, installation_id: installation, key_hash: createHash("sha256").update(TEST_ACCESS_KEY).digest("hex"),
+    credential: null, preferences: defaultSettings(), created_at: new Date().toISOString(), revoked_at: null });
+  const requests: { text: string; parameters: unknown[] }[] = [];
+  const query: AccountQuery = async (text, parameters = []) => {
+    requests.push({ text, parameters });
+    if (text.startsWith("CREATE TABLE") || text.includes("LIMIT 0")) return [];
+    if (text.startsWith("INSERT INTO mist_accounts")) {
+      const [id, key_hash, installation_id, preferences] = parameters;
+      records.set(String(installation_id), { id, key_hash, installation_id, credential: null,
+        preferences: JSON.parse(String(preferences)), created_at: new Date().toISOString(), revoked_at: null });
+      return [];
     }
-    const [command, key, ...args] = JSON.parse(String(options.body)) as string[];
-    if (command === "HMGET") return Response.json({ result: args.map(field => records.get(key)?.get(field) ?? null) });
-    if (command === "HSET") {
-      const fields = records.get(key) || new Map<string, string>();
-      let added = 0;
-      for (let i = 0; i < args.length; i += 2) {
-        if (!fields.has(args[i])) added++;
-        fields.set(args[i], args[i + 1]);
-      }
-      records.set(key, fields);
-      return Response.json({ result: added });
-    }
-    throw new Error(`Unexpected Redis command: ${command}`);
+    if (text.startsWith("SELECT id, created_at,")) return [...records.values()].map(({ id, created_at, revoked_at }) => ({ id, created_at, revoked_at }));
+    const row = [...records.values()].find(row => row.revoked_at === null && (
+      text.includes("WHERE key_hash =") ? row.key_hash === parameters[0] :
+      text.includes("WHERE id =") ? row.id === parameters[0] :
+      row.installation_id === parameters[text.startsWith("UPDATE") ? 1 : 0]));
+    if (!row) return [];
+    if (text.startsWith("UPDATE mist_accounts SET revoked_at")) { row.revoked_at = new Date().toISOString(); return [{ id: row.id }]; }
+    if (text.startsWith("UPDATE mist_accounts SET credential")) { row.credential = JSON.parse(String(parameters[0])); return [{ id: row.id }]; }
+    if (text.startsWith("UPDATE mist_accounts SET preferences")) { row.preferences = JSON.parse(String(parameters[0])); return [{ id: row.id }]; }
+    return [structuredClone({ ...row, configured: row.credential !== null })];
   };
-  return { env, records, fetcher, open: () => Installations.open(env, fetcher) };
+  return { env, records, requests, query, id, installation, open: async () => new Accounts(query, env.MIST_ENCRYPTION_KEY) };
 }
 
 export function drama(id = 1, overrides: Vod = {}): Vod {

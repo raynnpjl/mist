@@ -11,7 +11,7 @@ import { MediaInspector } from "../src/media.js";
 import { HlsPlaylists } from "../src/hls.js";
 import { MkvDrama } from "../src/mkvdrama.js";
 import type { Resolution } from "../src/settings.js";
-import { drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
+import { configuredInstallation, drama, fixtures, installationFixture, TEST_ENCRYPTION_KEY, TEST_SOURCES } from "./fixtures.js";
 
 test("Mist is stream-only and eligible for IMDb and TMDB episodes from existing catalogs", () => {
   assert.deepEqual(manifest.catalogs, []);
@@ -174,8 +174,8 @@ test("HTTP direct episode requests return streams and CORS; catalogs and metadat
   const fixture = fixtures([drama()]);
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, fixture.inspector);
   const installations = await installationFixture().open();
-  const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fixture.fetcher)).listen(0, "127.0.0.1");
+  const id = await configuredInstallation(installations, "0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fixture.fetcher), TEST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -217,8 +217,8 @@ test("all providers recover a transient playlist failure before redirecting to t
       "#EXT-X-DISCONTINUITY", "#EXTINF:4,", "after.ts", "#EXT-X-ENDLIST"].join("\n"));
   };
   const installations = await installationFixture().open();
-  const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher)).listen(0, "127.0.0.1");
+  const id = await configuredInstallation(installations, "0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher), TEST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -255,8 +255,8 @@ test("all providers report why repair was bypassed when redirecting playback to 
   const inspector = new MediaInspector(fetcher, async () => ({}));
   const service = new AddonService(fixture.providers, new MetadataResolver(fetcher, "fixture-key"), fetcher, inspector);
   const installations = await installationFixture().open();
-  const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher)).listen(0, "127.0.0.1");
+  const id = await configuredInstallation(installations, "0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher), TEST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -306,8 +306,8 @@ test("all five providers repair episodes at playback, including new episodes and
       "#EXTINF:4,", "00495.ts", "#EXT-X-ENDLIST"].join("\n"));
   };
   const installations = await installationFixture().open();
-  const id = await installations.save("0123456789abcdef0123456789abcdef");
-  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher)).listen(0, "127.0.0.1");
+  const id = await configuredInstallation(installations, "0123456789abcdef0123456789abcdef");
+  const server = createApp(installations, () => service, fixture.providers, new HlsPlaylists("01".repeat(32), fetcher), TEST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -337,7 +337,7 @@ test("all five providers repair episodes at playback, including new episodes and
     assert.match(await (await fetch(mediaUrl)).text(), /updated-00075\.ts/);
     assert.equal(requests, sources.length * 2 + 1, "A new playback request must use the current upstream playlist");
     assert.equal((await fetch(mediaUrl.replace(id, "a".repeat(48)))).status, 404);
-    const otherId = await installations.save("0123456789abcdef0123456789abcdef");
+    const otherId = await configuredInstallation(installations, "0123456789abcdef0123456789abcdef");
     assert.equal((await fetch(mediaUrl.replace(id, otherId))).status, 400, "Playlist signatures are installation-bound");
     assert.equal((await fetch(mediaUrl.replace("/hls/", "/hls/x"))).status, 400);
   } finally {

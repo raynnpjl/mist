@@ -3,12 +3,11 @@ const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const read = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const remember = (key, value) => { try { value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch {} };
-const pathId = location.pathname.match(/^\/([a-f0-9]{48})\/configure\/?$/)?.[1];
 remember('mist.installation', null);
 const state = {
-  installation: pathId,
+  installation: undefined,
   consent: read('mist.notice') === '1', config: null, draft: null, view: 'overview',
-  health: [], checking: false, saving: false, keyPending: false, entering: false
+  health: [], checking: false, saving: false, keyPending: false, entering: false, access: false
 };
 let toastTimer;
 
@@ -38,8 +37,23 @@ function theme(value) {
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: options.body ? { 'Content-Type': 'application/json' } : undefined });
   const data = await response.json();
+  if (response.status === 401 && path !== '/api/access') {
+    lockAccess();
+  }
   if (!response.ok) throw Object.assign(new Error(data.error || 'Something went wrong. Please try again.'), { status: response.status });
   return data;
+}
+
+function lockAccess() {
+  navigate('overview');
+  state.access = false;
+  state.installation = undefined;
+  state.config = state.draft = null;
+  state.health = [];
+  $('workspace').hidden = $('connection').hidden = $('sign-out').hidden = true;
+  $('welcome').hidden = false;
+  $('welcome-status').textContent = 'Enter your access key to continue.';
+  openKey();
 }
 
 function renderSources() {
@@ -112,6 +126,7 @@ function showWorkspace() {
   $('welcome').hidden = true;
   $('workspace').hidden = false;
   $('connection').hidden = false;
+  $('sign-out').hidden = false;
   renderOverview();
   renderSources();
   renderLookup();
@@ -173,8 +188,19 @@ async function loadConfiguration() {
 
 function openKey() {
   if (!state.consent) return;
+  const unlocking = !state.access;
+  $('sign-out').hidden = unlocking;
   const editing = Boolean(state.config);
-  $('key-title').textContent = editing ? 'Update your TMDB key.' : 'TMDB Key Required';
+  $('key-title').textContent = unlocking ? 'Access Key Required' : editing ? 'Update your TMDB key.' : 'TMDB Key Required';
+  $('key-description').textContent = unlocking ? 'Enter your access key to continue Mist setup.' : 'Connect TMDB to match your TMDB-powered catalog with the right information';
+  $('key-label').textContent = unlocking ? 'Access key' : 'TMDB API key';
+  $('api-key').name = unlocking ? 'accessKey' : 'apiKey';
+  $('api-key').setAttribute('minlength', unlocking ? '64' : '32');
+  $('api-key').setAttribute('maxlength', unlocking ? '64' : '32');
+  $('api-key').pattern = unlocking ? '[a-f0-9]{64}' : '[a-fA-F0-9]{32}';
+  $('api-key').placeholder = unlocking ? 'Your private access key' : 'Your TMDB API key';
+  $('key-help').innerHTML = `${icon('lock')}${unlocking ? 'Contact Mist\'s developer for support' : 'Encrypted and saved on the server'}`;
+  $('tmdb-key-link').hidden = unlocking;
   $('save-key').innerHTML = `${editing ? 'Save API key' : 'Continue'} ${icon('arrow')}`;
   $('cancel-key').hidden = !editing;
   $('api-key').value = '';
@@ -191,6 +217,12 @@ async function enter() {
   state.entering = true;
   $('retry-workspace').hidden = true;
   try {
+    if (!state.access) {
+      const access = await api('/api/access');
+      state.access = access.authenticated;
+      state.installation = access.installation;
+      if (!state.access) { openKey(); return; }
+    }
     if (state.installation) {
       $('welcome-status').textContent = 'Opening your workspace…';
       try { await loadConfiguration(); return; }
@@ -202,6 +234,7 @@ async function enter() {
     }
     openKey();
   } catch (error) {
+    if (error.status === 401) return;
     $('welcome-status').textContent = 'Could not open your workspace. Please try again.';
     $('retry-workspace').hidden = false;
   } finally { state.entering = false; }
@@ -217,6 +250,7 @@ $('understand').addEventListener('click', () => {
 $('open-notice').addEventListener('click', () => $('dmca-dialog').showModal());
 $('key-dialog').addEventListener('cancel', event => { if (!state.config || state.keyPending) event.preventDefault(); });
 $('key-dialog').addEventListener('close', () => {
+  if ($('key-dialog').open) return;
   $('api-key').value = '';
   document.body.classList.remove('key-open');
   $('workspace').inert = false;
@@ -228,15 +262,32 @@ document.addEventListener('keydown', event => {
   if (state.config && !state.keyPending) $('key-dialog').close();
 });
 $('cancel-key').addEventListener('click', () => $('key-dialog').close());
+$('sign-out').addEventListener('click', async () => {
+  try {
+    await api('/api/access', { method: 'DELETE' });
+    lockAccess();
+    history.replaceState(null, '', '/configure');
+  } catch (error) { toast(error.message); }
+});
 $('key-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!state.consent || state.keyPending) return;
   state.keyPending = true;
+  const unlocking = !state.access;
   $('save-key').disabled = true;
+  $('sign-out').disabled = true;
   $('cancel-key').disabled = true;
-  $('save-key').textContent = 'Connecting…';
+  $('save-key').textContent = unlocking ? 'Verifying…' : 'Connecting…';
   $('key-error').hidden = true;
   try {
+    if (unlocking) {
+      const access = await api('/api/access', { method: 'POST', body: JSON.stringify({ accessKey: $('api-key').value }) });
+      state.access = true;
+      state.installation = access.installation;
+      $('key-dialog').close();
+      await enter();
+      return;
+    }
     const data = await api('/api/configure', { method: 'POST', body: JSON.stringify({ apiKey: $('api-key').value, installation: state.installation }) });
     state.installation = data.installation;
     $('api-key').value = '';
@@ -249,6 +300,7 @@ $('key-form').addEventListener('submit', async event => {
   } finally {
     state.keyPending = false;
     $('save-key').disabled = false;
+    $('sign-out').disabled = false;
     $('cancel-key').disabled = false;
     $('save-key').innerHTML = `Continue ${icon('arrow')}`;
   }

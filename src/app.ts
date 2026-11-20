@@ -2,14 +2,15 @@ import express from "express";
 import { resolve } from "node:path";
 import { addonBuilder, getRouter, Manifest } from "stremio-addon-sdk";
 import { Cache } from "./cache.js";
-import { installationId, Installations } from "./installations.js";
+import { installationId, Accounts } from "./accounts.js";
 import { STREAM_SOURCES } from "./providers.js";
 import { AddonService, StreamProvider } from "./service.js";
 import { HlsPlaylists } from "./hls.js";
 import { defaultSettings, parseSettings, RESOLUTIONS, Settings } from "./settings.js";
+import { accessGate } from "./access.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.3.8", name: "Mist",
+  id: "org.mist.chinese", version: "1.4.0", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
@@ -24,7 +25,7 @@ function manifestFor(req: express.Request): Manifest {
   return { ...manifest, logo: `${req.protocol}://${req.get("host")}/assets/icon.png` };
 }
 
-export function createApp(installations: Installations, createService: (key: string, settings: Settings) => AddonService, providers: StreamProvider[], playlists: HlsPlaylists) {
+export function createApp(installations: Accounts, createService: (key: string, settings: Settings) => AddonService, providers: StreamProvider[], playlists: HlsPlaylists, encryptionKey: string) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
   const app = express();
   app.set("trust proxy", 1);
@@ -45,13 +46,18 @@ export function createApp(installations: Installations, createService: (key: str
     catch { res.status(403).json({ error: "Invalid origin" }); return; }
     next();
   });
+  app.use("/api", accessGate(installations, encryptionKey));
+  app.use("/api/installations/:installation", (req, res, next) => {
+    if (req.params.installation !== res.locals.account.installation) { res.status(404).json({ error: "Installation not found" }); return; }
+    next();
+  });
 
   app.post("/api/configure", async (req, res, next) => {
     const key = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
     if (!/^[a-f0-9]{32}$/i.test(key)) { res.status(400).json({ error: "Enter a valid TMDB v3 API key (32 hexadecimal characters)" }); return; }
-    const id = req.body.installation;
+    const id = res.locals.account.installation as string;
     try {
-      if (id !== undefined && (typeof id !== "string" || !await installations.get(id))) {
+      if (req.body.installation !== undefined && req.body.installation !== id) {
         res.status(404).json({ error: "Installation not found" }); return;
       }
       try { await createService(key, defaultSettings()).authenticate(); }
