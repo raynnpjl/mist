@@ -19,9 +19,9 @@ export type SegmentProbe = (url: string, timeoutMs: number) => Promise<SegmentCl
 const run = promisify(execFile);
 const SAMPLE_BYTES = 1024;
 
-export const probeSegmentClock: SegmentProbe = async (url, timeoutMs) => {
+export const probeSegmentClock = async (url: string, timeoutMs: number, fetcher: Fetcher = fetch): Promise<SegmentClock> => {
   const deadline = Date.now() + timeoutMs;
-  const response = await fetch(url, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] }, signal: AbortSignal.timeout(timeoutMs) });
+  const response = await fetcher(url, { headers: { "User-Agent": UPSTREAM_HEADERS["User-Agent"] }, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) { await response.body?.cancel(); throw new Error(`Segment HTTP ${response.status}`); }
   const bytes = await readBytes(response, 4 * 1024 * 1024);
   const pending = run("ffprobe", ["-v", "error", "-protocol_whitelist", "pipe", "-select_streams", "v:0",
@@ -42,12 +42,14 @@ function positive(input: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-export const probeMedia: MediaProbe = async (url, timeoutMs) => {
-  const { stdout } = await run("ffprobe", ["-v", "error", "-protocol_whitelist", "http,https,tcp,tls,crypto",
-    "-rw_timeout", "2000000", "-user_agent", UPSTREAM_HEADERS["User-Agent"],
+export const probeMedia = async (url: string, timeoutMs: number, proxy?: string): Promise<Partial<MediaInfo>> => {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-protocol_whitelist", "http,https,tcp,tls,crypto,httpproxy",
+    ...(proxy ? ["-http_proxy", proxy] : []),
+    "-rw_timeout", String(timeoutMs * 1000), "-user_agent", UPSTREAM_HEADERS["User-Agent"],
     "-analyzeduration", "1000000", "-probesize", "262144", "-show_entries",
     "stream=codec_type,codec_name,width,height,channel_layout:format=format_name,bit_rate", "-of", "json", url],
-  { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 256 * 1024, windowsHide: true });
+  { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 256 * 1024, windowsHide: true,
+    env: proxy ? { ...process.env, no_proxy: "", NO_PROXY: "" } : process.env });
   return parseProbe(JSON.parse(stdout), url);
 };
 

@@ -5,7 +5,8 @@ import { AddonService } from "./service.js";
 import { MetadataResolver } from "./metadata.js";
 import { Accounts } from "./accounts.js";
 import { HlsPlaylists } from "./hls.js";
-import { MediaInspector, probeMedia } from "./media.js";
+import { MediaInspector } from "./media.js";
+import { createMediaNetwork } from "./media-network.js";
 import { MkvDrama } from "./mkvdrama.js";
 import { MkvHeaderInspector } from "./mkv-metadata.js";
 import { DiscoveryStore } from "./discovery-cache.js";
@@ -15,6 +16,7 @@ const timeout = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be between 1 and 65535");
 if (!Number.isInteger(timeout) || timeout < 100 || timeout > 30000) throw new Error("UPSTREAM_TIMEOUT_MS must be between 100 and 30000");
 async function main() {
+  const media = createMediaNetwork();
   const installations = await Accounts.open();
   await installations.check();
   const discovery = new DiscoveryStore();
@@ -23,11 +25,12 @@ async function main() {
   const server = createApp(installations, (key, settings) => new AddonService(
     settings.sourceOrder.filter(id => settings.sources.includes(id)).flatMap(id => providers.filter(provider => provider.source.id === id)),
     new MetadataResolver(fetch, key, timeout), fetch,
-    new MediaInspector(fetch, probeMedia, settings.inspectionTimeoutMs), settings.resolutions, mkvHeaders), providers, new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!), process.env.MIST_ENCRYPTION_KEY!)
+    new MediaInspector(media.fetcher, media.probe, settings.inspectionTimeoutMs), settings.resolutions, mkvHeaders), providers,
+    new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!, media.fetcher, media.segmentProbe), process.env.MIST_ENCRYPTION_KEY!)
     .listen(port, process.env.HOST || "0.0.0.0", () => console.log(`Mist setup: http://localhost:${port}/configure`));
   server.requestTimeout = 60_000;
   function shutdown() {
-    server.close(() => process.exit(0));
+    server.close(() => { media.close().then(() => process.exit(0), () => process.exit(1)); });
     setTimeout(() => process.exit(1), 10_000).unref();
   }
   process.once("SIGTERM", shutdown);
