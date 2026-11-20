@@ -25,7 +25,7 @@ async function main() {
   const server = createApp(installations, (key, settings) => new AddonService(
     settings.sourceOrder.filter(id => settings.sources.includes(id)).flatMap(id => providers.filter(provider => provider.source.id === id)),
     new MetadataResolver(fetch, key, timeout), fetch,
-    new MediaInspector(media.fetcher, media.probe, settings.inspectionTimeoutMs), settings.resolutions, mkvHeaders), providers,
+    new MediaInspector(media.fetcher, media.probe, settings.inspectionTimeoutMs), settings.resolutions, mkvHeaders, settings.resolutionFirst), providers,
     new HlsPlaylists(process.env.MIST_ENCRYPTION_KEY!, media.fetcher, media.segmentProbe), process.env.MIST_ENCRYPTION_KEY!)
     .listen(port, process.env.HOST || "0.0.0.0", () => console.log(`Mist setup: http://localhost:${port}/configure`));
   server.requestTimeout = 60_000;

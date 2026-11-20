@@ -73,6 +73,7 @@ function renderSources() {
       <span>${resolution === 2160 ? '4K' : resolution === 'unknown' ? 'Unknown' : `${resolution}p`}</span>
     </label>`;
   }).join('');
+  $('resolution-first').checked = state.draft.resolutionFirst;
   renderSelection();
 }
 
@@ -109,14 +110,14 @@ function renderOverview() {
 function renderSaveBar() {
   if (!state.config) return;
   const saved = state.config.settings;
-  const dirty = saved.inspectionTimeoutMs !== state.draft.inspectionTimeoutMs ||
+  const dirty = saved.inspectionTimeoutMs !== state.draft.inspectionTimeoutMs || saved.resolutionFirst !== state.draft.resolutionFirst ||
     saved.sources.length !== state.draft.sources.length || saved.sources.some(id => !state.draft.sources.includes(id)) ||
     saved.sourceOrder.some((id, index) => id !== state.draft.sourceOrder[index]) ||
     saved.resolutions.length !== state.draft.resolutions.length || saved.resolutions.some(resolution => !state.draft.resolutions.includes(resolution));
   $('save-bar').hidden = !dirty;
   $('save-settings').disabled = state.saving || !state.draft.sources.length || !state.draft.resolutions.length;
   $('discard').disabled = state.saving;
-  document.querySelectorAll('#source-grid input, #resolution-options input, #lookup-time, [data-time], #select-all').forEach(control => { control.disabled = state.saving; });
+  document.querySelectorAll('#source-grid input, #resolution-options input, #resolution-first, #lookup-time, [data-time], #select-all').forEach(control => { control.disabled = state.saving; });
   document.querySelectorAll('[data-reorder]').forEach(handle => { handle.disabled = state.saving; });
   $('save-hint').textContent = !state.draft.sources.length ? 'Select at least one source to continue.' :
     !state.draft.resolutions.length ? 'Select at least one resolution to continue.' : 'Applies to your current installation.';
@@ -415,6 +416,10 @@ $('source-grid').addEventListener('change', () => {
 $('resolution-options').addEventListener('change', () => {
   state.draft.resolutions = [...$('resolution-options').querySelectorAll('input:checked')].map(input => input.value === 'unknown' ? 'unknown' : Number(input.value));
   renderSelection();
+});
+$('resolution-first').addEventListener('change', event => {
+  state.draft.resolutionFirst = event.target.checked;
+  renderSaveBar();
 });
 $('select-all').addEventListener('click', () => {
   state.draft.sources = [...state.draft.sourceOrder];

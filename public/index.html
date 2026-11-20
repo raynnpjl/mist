@@ -90,7 +90,7 @@
           <fieldset class="source-group">
             <legend>Providers</legend>
             <div class="sources-toolbar"><span id="selection-count" class="caption">6 enabled</span><button class="text-button" id="select-all">Enable all</button></div>
-            <p class="caption source-order-help" id="source-order-help">Drag to arrange providers. Top providers appear first.<span class="sr-only"> Focus a drag handle and use the arrow keys to reorder with a keyboard.</span></p>
+            <p class="caption source-order-help" id="source-order-help">Drag to set provider priority.<span class="sr-only"> Focus a drag handle and use the arrow keys to reorder with a keyboard.</span></p>
             <div class="source-grid" id="source-grid" role="list" aria-label="Provider priority"></div>
             <span class="sr-only" id="source-order-status" role="status"></span>
           </fieldset>
@@ -98,6 +98,15 @@
             <legend>Resolutions</legend>
             <p class="caption" id="resolution-help">Choose one or more. Mist falls back to Unknown when it can't retrieve a source's resolution metadata.</p>
             <div class="resolution-options" id="resolution-options"></div>
+          </fieldset>
+          <fieldset class="source-group resolution-group">
+            <legend>Card order</legend>
+            <div class="source-grid">
+              <div class="source-option">
+                <label class="source-text" for="resolution-first"><strong>Higher resolution first</strong><small id="card-order-help">Matching resolutions follow your provider order. Unknown appears last.</small></label>
+                <label class="switch"><input id="resolution-first" type="checkbox" role="switch" aria-label="Higher resolution first" aria-describedby="card-order-help"><span class="switch-track"></span></label>
+              </div>
+            </div>
           </fieldset>
         </div>
       </section>
