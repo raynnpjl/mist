@@ -60,7 +60,7 @@ function renderSources() {
   $('source-grid').innerHTML = state.draft.sourceOrder.map(id => {
     const source = state.config.providers.find(source => source.id === id);
     const selected = state.draft.sources.includes(source.id);
-    const name = source.id === 'mkvdrama' ? source.name : `${source.name}云播`;
+    const name = source.name;
     return `<div class="source-option" data-source-row="${escape(source.id)}" role="listitem">
       <button class="source-drag" type="button" data-reorder="${escape(source.id)}" aria-label="Reorder ${escape(name)}" aria-describedby="source-order-help" title="Drag to reorder, or use the arrow keys" ${state.saving ? 'disabled' : ''}><span aria-hidden="true">⠿</span></button>
       <label class="source-text" for="source-${escape(source.id)}"><strong>${escape(name)}</strong>${source.id === 'mkvdrama' ? '<small>PixelDrain · Send</small>' : ''}</label>

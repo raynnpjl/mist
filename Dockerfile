@@ -3,7 +3,7 @@ WORKDIR /app
 ENV IMPER_CACHE_DIR=/opt/mist-curl
 COPY package*.json ./
 RUN npm ci && node --input-type=module -e "const {isUsingImpersonate}=await import('impers'); if(!await isUsingImpersonate()) throw Error('curl-impersonate unavailable')"
-COPY tsconfig.json ./
+COPY tsconfig.json config.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
@@ -14,7 +14,7 @@ ENV NODE_ENV=production PORT=7000 IMPER_CACHE_DIR=/opt/mist-curl
 COPY --from=build /opt/mist-curl /opt/mist-curl
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package.json ./
+COPY package.json config.json ./
 COPY public ./public
 USER node
 EXPOSE 7000
