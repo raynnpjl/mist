@@ -64,3 +64,23 @@ test("a ready provider starts media inspection before a slower search finishes w
     assert.equal(probes, 1, "shared URLs must reuse one inspection");
   }
 });
+
+test("installations share verified VOD probes while keeping their own filters, order and detail budgets", async () => {
+  const fixture = fixtures([drama()]);
+  const budgets: number[] = [];
+  const inspector = new MediaInspector(fixture.fetcher, async (...args) => {
+    budgets.push(args[1]);
+    return fixture.probe(...args);
+  });
+  const first = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "first-key"), fixture.fetcher,
+    inspector, [1080], undefined, false, 1000);
+  const reversed = new AddonService([...fixture.providers].reverse(), new MetadataResolver(fixture.fetcher, "second-key"), fixture.fetcher,
+    inspector, [1080], undefined, false, 10000);
+  const filtered = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "third-key"), fixture.fetcher,
+    inspector, [720], undefined, false, 6500);
+  const streams = await first.streams("series", "tmdb:210757:1:1");
+  assert.equal(streams.length, 2);
+  assert.deepEqual(await reversed.streams("series", "tmdb:210757:1:1"), [...streams].reverse());
+  assert.deepEqual(await filtered.streams("series", "tmdb:210757:1:1"), []);
+  assert.deepEqual(budgets, [1000, 1000], "other accounts must reuse verified facts without inheriting source preferences");
+});

@@ -4,6 +4,16 @@ export class Cache<T> {
 
   delete(key: string): void { this.entries.delete(key); }
 
+  peek(key: string): Promise<T> | undefined {
+    const entry = this.entries.get(key);
+    return entry && entry.expires > Date.now() ? entry.pending : undefined;
+  }
+
+  set(key: string, value: T, ttl: number): void {
+    this.entries.set(key, { expires: Date.now() + ttl, pending: Promise.resolve(value) });
+    if (this.entries.size > this.limit) this.entries.delete(this.entries.keys().next().value!);
+  }
+
   get(key: string, ttl: number | ((value: T) => number), load: () => Promise<T>): Promise<T> {
     const existing = this.entries.get(key);
     if (existing && existing.expires > Date.now()) return existing.pending;

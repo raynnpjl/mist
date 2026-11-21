@@ -91,26 +91,29 @@ export function parsePlaylist(text: string, base: string): Playlist {
 
 export class MediaInspector {
   private cache = new Cache<MediaInfo>(512);
+  private verified = new Cache<MediaInfo>(512);
   private pool = new Pool(8);
   constructor(private fetcher: Fetcher = fetch, private probe: MediaProbe = probeMedia, private timeoutMs = 6500) {}
 
-  inspect(url: string): Promise<MediaInfo> {
-    return this.cache.get(url, 5 * 60_000, () => {
-      const deadline = Date.now() + this.timeoutMs;
-      const signal = AbortSignal.timeout(this.timeoutMs);
-      return this.pool.run(async () => {
-        const declared: MediaInfo = { reachable: false };
-        const timeout = deadline - Date.now();
-        if (timeout < 1) return declared;
-        const [, probed] = await Promise.allSettled([
-          this.inspectPlaylist(url, declared, signal), this.probe(url, timeout)
-        ]);
-        const detected = probed.status === "fulfilled" ? probed.value : {};
-        // Prefer codec-detected dimensions to sometimes inaccurate playlist labels.
-        return { ...declared, ...Object.fromEntries(Object.entries(detected).filter(([, v]) => v !== undefined)),
-          reachable: declared.reachable || detected.reachable === true };
-      });
-    });
+  inspect(url: string, timeoutMs = this.timeoutMs): Promise<MediaInfo> {
+    const verified = this.verified.peek(url);
+    if (verified) return verified;
+    return this.cache.get(JSON.stringify([url, timeoutMs]), 5000, () => this.pool.run(async () => {
+      const cached = this.verified.peek(url);
+      if (cached) return cached;
+      // Queue time must not consume the installation's media inspection window.
+      const signal = AbortSignal.timeout(timeoutMs);
+      const declared: MediaInfo = { reachable: false };
+      const [playlist, probed] = await Promise.allSettled([
+        this.inspectPlaylist(url, declared, signal), this.probe(url, timeoutMs)
+      ]);
+      const detected = probed.status === "fulfilled" ? probed.value : {};
+      // Prefer codec-detected dimensions to sometimes inaccurate playlist labels.
+      const result = { ...declared, ...Object.fromEntries(Object.entries(detected).filter(([, v]) => v !== undefined)),
+        reachable: declared.reachable || detected.reachable === true };
+      if (playlist.status === "fulfilled" && detected.height && detected.videoCodec) this.verified.set(url, result, 5 * 60_000);
+      return result;
+    }));
   }
 
   private async inspectPlaylist(url: string, info: MediaInfo, signal: AbortSignal): Promise<void> {

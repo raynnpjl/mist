@@ -4,7 +4,8 @@ import { setImmediate } from "node:timers/promises";
 import { MediaInspector, codecTags, parsePlaylist, parseProbe } from "../src/media.js";
 
 test("eight inspections run together with full detail budgets while excess work stays queued", async t => {
-  t.mock.method(Date, "now", () => 10000);
+  let now = 10000;
+  t.mock.method(Date, "now", () => now);
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   let active = 0, peak = 0, calls = 0;
@@ -25,6 +26,7 @@ test("eight inspections run together with full detail budgets while excess work 
     assert.equal(active, 8, "all eight slots must be usable before any inspection finishes");
     assert.equal(calls, 8, "excess inspections must remain queued");
   } finally {
+    now += 6501;
     release();
     await completed;
   }
@@ -32,6 +34,82 @@ test("eight inspections run together with full detail budgets while excess work 
   assert.equal(calls, 10);
   assert.equal(peak, 8);
   assert.deepEqual(budgets, Array(10).fill(6500));
+});
+
+test("successful inspections share verified facts across budgets and expire without normalizing signed URLs", async t => {
+  let now = 10000, calls = 0;
+  t.mock.method(Date, "now", () => now);
+  const inspector = new MediaInspector(async () => new Response("#EXTM3U\n"), async () => {
+    calls++;
+    return { reachable: true, width: 1920, height: 1080, videoCodec: "h264" };
+  });
+  const url = "https://video.example/master.m3u8?token=one";
+  const first = await inspector.inspect(url, 1000);
+  assert.equal(await inspector.inspect(url, 10000), first);
+  assert.equal(calls, 1, "changing an account's detail budget must reuse successful metadata");
+  await inspector.inspect(url.replace("one", "two"), 10000);
+  assert.equal(calls, 2, "different playback signatures must remain distinct");
+  now += 5 * 60_000 + 1;
+  await inspector.inspect(url, 10000);
+  assert.equal(calls, 3, "expired availability and media details must be refreshed");
+});
+
+test("short failed inspections cannot poison thorough inspections, and failures retry after five seconds", async t => {
+  let now = 10000;
+  t.mock.method(Date, "now", () => now);
+  const budgets: number[] = [];
+  const inspector = new MediaInspector(async () => new Response("#EXTM3U\n"), async (_url, timeout) => {
+    budgets.push(timeout);
+    if (timeout < 6500) throw new Error("Probe timed out");
+    return { reachable: true, height: 1080, videoCodec: "h264" };
+  });
+  const url = "https://video.example/master.m3u8";
+  assert.equal((await inspector.inspect(url, 1000)).height, undefined);
+  await inspector.inspect(url, 1000);
+  assert.deepEqual(budgets, [1000], "identical failures should have a short cooldown");
+  now += 5001;
+  await inspector.inspect(url, 1000);
+  assert.deepEqual(budgets, [1000, 1000]);
+  assert.equal((await inspector.inspect(url, 6500)).height, 1080);
+  assert.deepEqual(budgets, [1000, 1000, 6500]);
+  assert.equal((await inspector.inspect(url, 1000)).height, 1080);
+  assert.deepEqual(budgets, [1000, 1000, 6500]);
+});
+
+test("pending inspections with different budgets keep independent probes", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const budgets: number[] = [];
+  const inspector = new MediaInspector(async () => new Response("#EXTM3U\n"), async (_url, timeout) => {
+    budgets.push(timeout);
+    await gate;
+    if (timeout === 1000) throw new Error("Probe timed out");
+    return { reachable: true, height: 1080, videoCodec: "h264" };
+  });
+  const short = inspector.inspect("https://video.example/master.m3u8", 1000);
+  const thorough = inspector.inspect("https://video.example/master.m3u8", 10000);
+  try {
+    await setImmediate();
+    assert.deepEqual(budgets, [1000, 10000]);
+  } finally { release(); }
+  assert.equal((await short).height, undefined);
+  assert.equal((await thorough).height, 1080);
+});
+
+test("playlist-only dimensions retry verification instead of entering the successful metadata cache", async t => {
+  let now = 10000, calls = 0;
+  t.mock.method(Date, "now", () => now);
+  const inspector = new MediaInspector(async input => String(input).endsWith(".m3u8") ?
+    new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720\nmedia.m3u8\n") : new Response("sample"),
+  async () => {
+    if (++calls === 1) throw new Error("Probe timed out");
+    return { reachable: true, height: 1080, videoCodec: "h264" };
+  });
+  const url = "https://video.example/master.m3u8";
+  assert.equal((await inspector.inspect(url)).height, 720);
+  now += 5001;
+  assert.equal((await inspector.inspect(url)).height, 1080);
+  assert.equal(calls, 2);
 });
 
 test("FFprobe HLS playlist-size bitrate is excluded while real file bitrate is retained", () => {

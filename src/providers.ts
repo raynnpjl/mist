@@ -29,6 +29,7 @@ export type Fetcher = typeof fetch;
 
 export class Provider {
   private cache = new Cache<Record<string, unknown>>(256);
+  private matches = new Cache<string[]>(512);
   private checks = new Cache<{ available: boolean; checkedAt: string; responseMs?: number; error?: string }>(1);
   private retryAt = 0;
   private state: { lastSuccess?: string; lastError?: string } = {};
@@ -45,9 +46,14 @@ export class Provider {
     return data;
   }
 
-  private request(params: Record<string, string>, ttl: number): Promise<Record<string, unknown>> {
+  private url(params: Record<string, string>): URL {
     const url = new URL(this.source.url);
     for (const [key, val] of Object.entries(params)) url.searchParams.set(key, val);
+    return url;
+  }
+
+  private request(params: Record<string, string>, ttl: number): Promise<Record<string, unknown>> {
+    const url = this.url(params);
     return this.cache.get(url.href, ttl, () => this.pool.run(async () => {
       if (Date.now() < this.retryAt) throw new Error(`${this.source.id}: temporarily unavailable`);
       try {
@@ -79,6 +85,25 @@ export class Provider {
     if (!Number.isInteger(pages) || pages < 0) throw new Error(`${this.source.id}: invalid page count`);
     return { items: data.list as Vod[], pages };
   }
+
+  cachedMatch(key: string): Promise<Vod[]> | undefined {
+    return this.matches.peek(key)?.then(async ids => {
+      const data = await this.request({ ac: "detail", ids: ids.join(",") }, 2 * 60_000);
+      const records = new Map((data.list as Vod[]).map(vod => [value(vod.vod_id), vod]));
+      // A partial response must rediscover replacements rather than hide missing sources.
+      return ids.every(id => records.has(id)) ? ids.map(id => records.get(id)!) : [];
+    });
+  }
+
+  rememberMatch(key: string, records: Vod[]): void {
+    const ids = [...new Set(records.map(vod => value(vod.vod_id)))];
+    if (!ids.length || ids.length > 100 || ids.some(id => !/^[1-9]\d*$/.test(id))) return;
+    this.matches.set(key, ids, 30 * 60_000);
+    // Reuse the search response for warm episode requests without an extra detail call.
+    this.cache.set(this.url({ ac: "detail", ids: ids.join(",") }).href, { code: 1, list: records }, 2 * 60_000);
+  }
+
+  forgetMatch(key: string): void { this.matches.delete(key); }
 
   check() {
     return this.checks.get("availability", 30_000, async () => {

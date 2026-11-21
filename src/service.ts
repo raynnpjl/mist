@@ -97,7 +97,7 @@ function catalogPart(name: string): string | undefined {
 export class AddonService {
   constructor(readonly providers: StreamProvider[], private metadata: MetadataResolver, fetcher: Fetcher = fetch,
     private inspector = new MediaInspector(fetcher), private resolutions = RESOLUTIONS,
-    private mkvInspector = new MkvHeaderInspector(fetcher), private resolutionFirst = false) {}
+    private mkvInspector = new MkvHeaderInspector(fetcher), private resolutionFirst = false, private inspectionTimeoutMs?: number) {}
 
   authenticate(): Promise<void> { return this.metadata.authenticate(); }
 
@@ -114,25 +114,41 @@ export class AddonService {
       names: [...new Set([request.season! > 4 ? "奔跑吧" : "奔跑吧兄弟", ...title.names])] } : title;
     const names = titleNames(lookupTitle, lookup);
     const allowed = new Set(names.map(normalized));
+    const select = (items: Vod[], info?: EpisodeInfo) => {
+      const year = request.season && request.season > 1 ? info?.year || title.year : title.year;
+      const streams: Candidate[] = [], records: Vod[] = [];
+      for (const vod of items) {
+        const kind = chineseKind(vod);
+        const name = normalized(value(vod.vod_name));
+        const vodYear = value(vod.vod_year).replace(/\s*[（(][^）)]*[）)]$/, "");
+        const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
+          vodYear === String(title.year);
+        if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
+          (!collection && vodYear !== String(year)) || !allowed.has(name)) continue;
+        records.push(vod);
+        const parts = playables(vod, kind).filter(p => selected(p, vod, collection ? request : lookup, info));
+        for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang), subtitles: "Chinese",
+          url: part.url, group: part.group, releaseType: releaseType(vod) });
+      }
+      return { streams, records };
+    };
+    const key = JSON.stringify([request.type, title.tmdbId, title.names, title.year, request.season]);
+    const cached = provider.cachedMatch(key);
+    if (cached) {
+      const [records, info] = await Promise.all([cached, episodeInfo]);
+      const found = select(records, info);
+      if (found.streams.length && found.records.length === records.length) return found.streams;
+      provider.forgetMatch(key);
+    }
     const searches = lookup.season === 1 ? lookupTitle.names : names;
     for (const search of searches.slice(0, lookup.season! > 1 ? 6 : 3)) {
       for (let page = 1; page <= 5; page++) {
         const [data, info] = await Promise.all([provider.page(page, undefined, search), episodeInfo]);
-        const year = request.season && request.season > 1 ? info?.year || title.year : title.year;
-        const streams: Candidate[] = [];
-        for (const vod of data.items) {
-          const kind = chineseKind(vod);
-          const name = normalized(value(vod.vod_name));
-          const vodYear = value(vod.vod_year).replace(/\s*[（(][^）)]*[）)]$/, "");
-          const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
-            vodYear === String(title.year);
-          if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
-            (!collection && vodYear !== String(year)) || !allowed.has(name)) continue;
-          const parts = playables(vod, kind).filter(p => selected(p, vod, collection ? request : lookup, info));
-          for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang), subtitles: "Chinese",
-            url: part.url, group: part.group, releaseType: releaseType(vod) });
+        const found = select(data.items, info);
+        if (found.streams.length) {
+          provider.rememberMatch(key, found.records);
+          return found.streams;
         }
-        if (streams.length) return streams;
         if (page >= data.pages) break;
       }
     }
@@ -176,7 +192,7 @@ export class AddonService {
         }));
       }
       const candidates = await this.find(provider, title, request, info);
-      return Promise.all(candidates.map(async candidate => ({ candidate, media: await this.inspector.inspect(candidate.url) })));
+      return Promise.all(candidates.map(async candidate => ({ candidate, media: await this.inspector.inspect(candidate.url, this.inspectionTimeoutMs) })));
     }));
     if (results.length && results.every(r => r.status === "rejected")) throw new Error("All stream providers are temporarily unavailable");
     const unique = new Map<string, { candidate: Candidate; media: MediaInfo }>();
