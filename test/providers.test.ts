@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createProviders, loadSources, SOURCES } from "../src/providers.js";
-import { TEST_SOURCES } from "./fixtures.js";
+import { sourceConfig } from "../src/config.js";
 
-const environment = Object.fromEntries(TEST_SOURCES.map(source => [`${source.id.toUpperCase()}_API_URL`, source.url]));
-
-test("provider endpoints come only from the supplied environment and drive API requests", async () => {
-  const sources = loadSources(environment);
-  assert.deepEqual(sources, TEST_SOURCES);
-  assert.ok(SOURCES.every(source => !("url" in source)), "source catalog must not embed endpoints");
+test("JSON endpoints drive API requests while the public provider catalog omits URLs", async t => {
+  const previous = process.env.HONGNIU_API_URL;
+  process.env.HONGNIU_API_URL = "https://ignored.example/api";
+  t.after(() => { if (previous === undefined) delete process.env.HONGNIU_API_URL; else process.env.HONGNIU_API_URL = previous; });
+  const sources = loadSources();
+  assert.deepEqual(sources, sourceConfig.apis);
+  assert.ok(SOURCES.every(source => !("url" in source)), "public source catalog must not expose endpoints");
   const seen: URL[] = [];
   const fetcher: typeof fetch = async input => {
     seen.push(new URL(String(input)));
@@ -16,20 +17,6 @@ test("provider endpoints come only from the supplied environment and drive API r
   };
   const result = await Promise.all(createProviders(sources, fetcher).map(provider => provider.check()));
   assert.ok(result.every(row => row.available));
-  assert.deepEqual(seen.map(url => url.origin + url.pathname), TEST_SOURCES.map(source => source.url));
+  assert.deepEqual(seen.map(url => url.origin + url.pathname), sources.map(source => source.url));
   assert.ok(seen.every(url => url.searchParams.get("ac") === "list"));
-});
-
-test("missing or invalid endpoint configuration fails without built-in URLs or leaking its value", () => {
-  for (const source of SOURCES) {
-    const key = `${source.id.toUpperCase()}_API_URL`;
-    for (const value of [undefined, "", "invalid-private-endpoint", "http://private.example/api", "https://user:secret@private.example/api"]) {
-      assert.throws(() => loadSources({ ...environment, [key]: value }), error => {
-        assert.ok(error instanceof Error);
-        assert.ok(error.message.includes(key));
-        assert.ok(!error.message.includes("private.example") && !error.message.includes("secret") && !error.message.includes("invalid-private-endpoint"));
-        return true;
-      });
-    }
-  }
 });

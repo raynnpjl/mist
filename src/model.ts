@@ -1,7 +1,7 @@
 export type Kind = "movie" | "drama" | "variety";
 export type Vod = Record<string, unknown>;
 export interface Category { id: string; name: string }
-export interface Page { items: Vod[]; pages: number }
+export interface Page { items: Vod[]; pages: number; endpoint: string }
 export interface Episode {
   key: string;
   title: string;

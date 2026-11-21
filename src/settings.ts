@@ -16,10 +16,11 @@ export function parseSettings(input: unknown): Settings | undefined {
     ? [...sources, ...STREAM_SOURCES.map(source => source.id).filter(id => !sources.includes(id))] : sourceOrder;
   if (!Array.isArray(sources) || !sources.length || new Set(sources).size !== sources.length ||
     !sources.every(id => STREAM_SOURCES.some(source => source.id === id)) ||
-    !Array.isArray(order) || order.length !== STREAM_SOURCES.length || new Set(order).size !== order.length ||
+    !Array.isArray(order) || !order.length || new Set(order).size !== order.length ||
     !order.every(id => STREAM_SOURCES.some(source => source.id === id)) ||
     !Number.isInteger(inspectionTimeoutMs) || inspectionTimeoutMs < 1000 || inspectionTimeoutMs > 10000 || inspectionTimeoutMs % 500 !== 0 ||
     !Array.isArray(resolutions) || !resolutions.length || new Set(resolutions).size !== resolutions.length ||
     !resolutions.every(resolution => RESOLUTIONS.includes(resolution)) || typeof resolutionFirst !== "boolean") return;
-  return { sources: [...sources], sourceOrder: [...order], inspectionTimeoutMs, resolutions: [...resolutions], resolutionFirst };
+  return { sources: [...sources], sourceOrder: [...order, ...STREAM_SOURCES.map(source => source.id).filter(id => !order.includes(id))],
+    inspectionTimeoutMs, resolutions: [...resolutions], resolutionFirst };
 }

@@ -6,7 +6,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Accounts, AccountQuery } from "../src/accounts.js";
 import { defaultSettings } from "../src/settings.js";
 
-export const TEST_SOURCES = SOURCES.map(source => ({ ...source, url: `https://${source.id}.example/api.php/provide/vod` }));
+export const TEST_SOURCES = SOURCES.slice(0, 5).map(source => ({ ...source, url: `https://${source.id}.example/api.php/provide/vod` }));
 export const TEST_ACCESS_KEY = "a1".repeat(32);
 export const TEST_ENCRYPTION_KEY = "01".repeat(32);
 

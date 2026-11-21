@@ -28,7 +28,7 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   if (subtitles === "Unknown") count("missing.subtitles");
   const description = [`${candidate.displayName || title.displayName} ${episode}`, `Bitrate: ${bitrate}`,
     `Language: ${candidate.language || "Unknown"}`, `Subtitle: ${subtitles}`,
-    candidate.host ? `MKVDrama · ${candidate.host}` : `${candidate.source.name}云播`].join("\n");
+    candidate.host ? `${candidate.source.name} · ${candidate.host}` : candidate.source.name].join("\n");
   const extension = (candidate.filename || new URL(candidate.url).pathname).match(/\.(mp4|mkv)$/i)?.[1].toLowerCase() || "m3u8";
   const facts = [title.displayName, episode, info.height ? quality : undefined,
     info.width && info.height ? `${info.width}x${info.height}` : undefined, candidate.releaseType, ...codecTags(info), candidate.language];
@@ -126,8 +126,10 @@ export class AddonService {
       const streams: Candidate[] = [], records: Vod[] = [];
       for (const vod of items) {
         const kind = chineseKind(vod);
-        const name = normalized(value(vod.vod_name));
         const vodYear = value(vod.vod_year).replace(/\s*[（(][^）)]*[）)]$/, "");
+        let name = normalized(value(vod.vod_name));
+        const annualName = kind === "variety" && name.match(/^(.*)((?:19|20)\d{2})$/);
+        if (annualName && annualName[2] === vodYear && allowed.has(annualName[1])) name = annualName[1];
         const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
           vodYear === String(title.year);
         if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
@@ -148,12 +150,15 @@ export class AddonService {
       provider.forgetMatch(key);
     }
     const searches = lookup.season === 1 ? lookupTitle.names : names;
-    for (const search of searches.slice(0, lookup.season! > 1 ? 6 : 3)) {
+    const baseNames = [lookupTitle.nativeName, ...lookupTitle.names].filter((name): name is string => Boolean(name)).slice(0, 3);
+    const queries = [...new Set([...searches.slice(0, lookup.season! > 1 ? 6 : 3), ...baseNames,
+      ...baseNames.map(name => name.normalize("NFKC").replace(/[\p{P}\p{Z}\s]/gu, ""))])];
+    for (const search of queries) {
       for (let page = 1; page <= 5; page++) {
         const [data, info] = await Promise.all([provider.page(page, undefined, search), episodeInfo]);
         const found = select(data.items, info);
         if (found.streams.length) {
-          provider.rememberMatch(key, found.records);
+          provider.rememberMatch(key, found.records, data.endpoint);
           return found.streams;
         }
         if (page >= data.pages) break;

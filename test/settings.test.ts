@@ -12,6 +12,8 @@ import { MediaInspector } from "../src/media.js";
 import { AddonService } from "../src/service.js";
 import { accessCookie, configuredInstallation, drama, fixtures, installationFixture, TEST_SOURCES } from "./fixtures.js";
 
+const addedSources = STREAM_SOURCES.map(source => source.id).filter(id => ![...TEST_SOURCES.map(source => source.id), "mkvdrama"].includes(id));
+
 test("preferences default to all sources and persist independently of concurrent encrypted key updates", async () => {
   const redis = installationFixture();
   const store = await redis.open();
@@ -28,7 +30,7 @@ test("preferences default to all sources and persist independently of concurrent
 test("provider layout persists independently of enabled providers", async () => {
   const redis = installationFixture(), store = await redis.open();
   const id = await configuredInstallation(store, "0123456789abcdef0123456789abcdef");
-  const sourceOrder = ["youku", "hongniu", "mkvdrama", "tiantang", "liangzi", "baofeng"];
+  const sourceOrder = ["youku", "hongniu", "mkvdrama", "tiantang", "liangzi", "baofeng", ...addedSources];
   for (const sources of [["youku", "hongniu"], ["youku"], ["youku", "hongniu"]]) {
     await store.saveSettings(id, { ...defaultSettings(), sources, sourceOrder });
     const reopened = await redis.open();
@@ -38,16 +40,23 @@ test("provider layout persists independently of enabled providers", async () => 
   }
 });
 
-test("provider layout rejects incomplete, duplicate or unknown provider orders", () => {
+test("provider layout rejects empty, duplicate or unknown provider orders", () => {
   const settings = defaultSettings(), ids = STREAM_SOURCES.map(source => source.id);
-  for (const sourceOrder of [[], ids.slice(1), [...ids, ids[0]], ids.map(() => ids[0]), [...ids.slice(1), "unknown"], null, "hongniu"]) {
+  for (const sourceOrder of [[], [...ids, ids[0]], ids.map(() => ids[0]), [...ids.slice(1), "unknown"], null, "hongniu"]) {
     assert.equal(parseSettings({ ...settings, sourceOrder }), undefined);
   }
 });
 
+test("new JSON providers append to saved layout without changing enabled sources", () => {
+  const sources = ["hongniu", "youku"], sourceOrder = ["youku", "hongniu", "mkvdrama", "tiantang", "liangzi", "baofeng"];
+  const parsed = parseSettings({ ...defaultSettings(), sources, sourceOrder });
+  assert.deepEqual(parsed?.sources, sources);
+  assert.deepEqual(parsed?.sourceOrder, [...sourceOrder, ...addedSources]);
+});
+
 test("an unset provider layout retains the configured provider priority", () => {
   const parsed = parseSettings({ sources: ["mkvdrama", "hongniu"], inspectionTimeoutMs: 6500 });
-  assert.deepEqual(parsed?.sourceOrder, ["mkvdrama", "hongniu", "tiantang", "baofeng", "liangzi", "youku"]);
+  assert.deepEqual(parsed?.sourceOrder, ["mkvdrama", "hongniu", "tiantang", "baofeng", "liangzi", "youku", ...addedSources]);
 });
 
 test("preferences reject empty, duplicate or unknown sources and invalid time windows", () => {
@@ -160,7 +169,7 @@ test("dashboard preferences affect streams and inspection budgets, while status 
   assert.equal((await (await fetch(replicaStreamUrl)).json()).streams.length, 5);
   const update = (settings: unknown, origin = base) => request(`${endpoint}/settings`, { method: "PUT",
     headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(settings) });
-  const ordered = { ...defaultSettings(), sourceOrder: ["youku", "liangzi", "baofeng", "tiantang", "hongniu", "mkvdrama"] };
+  const ordered = { ...defaultSettings(), sourceOrder: ["youku", "liangzi", "baofeng", "tiantang", "hongniu", "mkvdrama", ...addedSources] };
   assert.equal((await update(ordered)).status, 200);
   assert.deepEqual((await (await request(endpoint)).json()).settings.sourceOrder, ordered.sourceOrder, "saved priority must round-trip in order");
   for (const url of [streamUrl, replicaStreamUrl]) {

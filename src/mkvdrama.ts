@@ -11,15 +11,16 @@ import { resolveOuo } from "./ouo.js";
 import { MKVDRAMA_HOSTS, fileHost, hostLabel, resolveSend } from "./filehosts.js";
 import { RESOLUTIONS, Resolution, resolutionFor } from "./resolutions.js";
 import { timed } from "./loading.js";
+import { sourceConfig } from "./config.js";
 
-export const MKVDRAMA_SOURCE = { id: "mkvdrama", name: "MKVDrama" };
+export const MKVDRAMA_SOURCE = { id: sourceConfig.mkvdrama.id, name: sourceConfig.mkvdrama.name };
 export interface MkvFile { url: string; filename: string; size?: number; version?: string; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
 type FileObserver = (file: MkvFile) => void | Promise<boolean>;
 interface Lookup { signal: AbortSignal; budget: { remaining: number; failed?: boolean }; cookies: Map<string, string>; refreshed: Set<string>; invalid: Set<string>; resolutions: Resolution[]; onFile?: FileObserver }
 interface FileReference { page: string; filename: string; size?: number; version?: string; height?: number; subtitles?: string }
 interface EpisodeMapping { completed: boolean; files: FileReference[] }
-const ORIGIN = "https://mkvdrama.net";
-const PAGE_HOSTS = new Set(["mkvdrama.net", "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com", "send.now"]);
+const ORIGIN = sourceConfig.mkvdrama.url;
+const PAGE_HOSTS = new Set([new URL(ORIGIN).hostname, "ouo.io", "ouo.press", "viewcrate.cc", "filecrypt.cc", "pixeldrain.com", "send.now"]);
 const HOSTS = new Set(MKVDRAMA_HOSTS.map(host => host.id));
 const HOUR = 60 * 60_000;
 const HEIGHT = /\b(2160|1440|1080|720|540|480|360)p/i;
