@@ -10,6 +10,7 @@ import type { Fetcher } from "./providers.js";
 import { resolveOuo } from "./ouo.js";
 import { MKVDRAMA_HOSTS, fileHost, hostLabel, resolveSend } from "./filehosts.js";
 import { RESOLUTIONS, Resolution, resolutionFor } from "./resolutions.js";
+import { timed } from "./loading.js";
 
 export const MKVDRAMA_SOURCE = { id: "mkvdrama", name: "MKVDrama" };
 export interface MkvFile { url: string; filename: string; size?: number; version?: string; height?: number; host: string; subtitles?: string; headers?: Record<string, string> }
@@ -104,7 +105,7 @@ export function pageFetcher(env: NodeJS.ProcessEnv = process.env): Fetcher {
       if (curlOptions && new URL(String(input)).hostname === "viewcrate.cc") {
         // CONNECT skips the origin DNS lookup that normally supplies Chrome's ECH configuration.
         curlOptions[CurlOpt.ECH] = "ecl:" + await encryptedHellos.get("viewcrate.cc", 60_000, async () => {
-          const response = await fetch("https://dns.google/resolve?name=viewcrate.cc&type=HTTPS", { signal, redirect: "error" });
+          const response = await timed("mkv.dnsHttp", () => fetch("https://dns.google/resolve?name=viewcrate.cc&type=HTTPS", { signal, redirect: "error" }));
           if (!response.ok) { await response.body?.cancel(); throw new Error("ViewCrate TLS configuration unavailable"); }
           const dns = JSON.parse(await readLimited(response, 16 * 1024));
           const record = (Array.isArray(dns.Answer) ? dns.Answer : []).find(
@@ -226,7 +227,7 @@ export class MkvDrama {
     if (!headers.has("Accept")) headers.set("Accept", "text/html");
     const cookie = lookup.cookies.get(target.origin);
     if (cookie) headers.set("Cookie", cookie);
-    const response = await this.fetcher(url, { ...init, headers, signal: lookup.signal, redirect: "manual" });
+    const response = await timed("mkv.http", () => this.fetcher(url, { ...init, headers, signal: lookup.signal, redirect: "manual" }));
     const cookies = response.headers.getSetCookie().map(value => value.split(";", 1)[0]);
     if (cookies.length) lookup.cookies.set(target.origin, [...new Map([...(cookie?.split("; ") || []), ...cookies]
       .map(value => [value.slice(0, value.indexOf("=")), value])).values()].join("; "));

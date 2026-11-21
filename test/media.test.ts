@@ -39,15 +39,15 @@ test("eight inspections run together with full detail budgets while excess work 
 test("successful inspections share verified facts across budgets and expire without normalizing signed URLs", async t => {
   let now = 10000, calls = 0;
   t.mock.method(Date, "now", () => now);
-  const inspector = new MediaInspector(async () => new Response("#EXTM3U\n"), async () => {
+  const inspector = new MediaInspector(async input => new Response(String(input).includes(".m3u8") ? "#EXTM3U\n#EXTINF:5,\nsegment.ts\n" : "media"), async () => {
     calls++;
     return { reachable: true, width: 1920, height: 1080, videoCodec: "h264" };
   });
-  const url = "https://video.example/master.m3u8?token=one";
+  const url = "https://video.example/master.m3u8";
   const first = await inspector.inspect(url, 1000);
   assert.equal(await inspector.inspect(url, 10000), first);
   assert.equal(calls, 1, "changing an account's detail budget must reuse successful metadata");
-  await inspector.inspect(url.replace("one", "two"), 10000);
+  await inspector.inspect(url + "?token=two", 10000);
   assert.equal(calls, 2, "different playback signatures must remain distinct");
   now += 5 * 60_000 + 1;
   await inspector.inspect(url, 10000);
@@ -133,7 +133,9 @@ test("HLS master inspection chooses the highest declared resolution and resolves
   assert.deepEqual(playlist, { next: "https://video.example/1080/index.m3u8?token=abc", width: 1920, height: 1080, bitrate: 4000000 });
 });
 
-test("inspection prefers detected dimensions, reads a bounded range, and caches results", async () => {
+test("cold inspection reads only playlists; availability refresh reads a bounded range without repeating FFprobe", async t => {
+  let now = 10000;
+  t.mock.method(Date, "now", () => now);
   const requests: string[] = [];
   let canceled = false, probes = 0;
   const fetcher: typeof fetch = async (input, options) => {
@@ -154,10 +156,17 @@ test("inspection prefers detected dimensions, reads a bounded range, and caches 
   assert.equal(first.height, 606);
   assert.equal(first.bitrate, 800000);
   assert.equal(first.reachable, true);
-  assert.equal(canceled, true);
+  assert.equal(canceled, false, "FFprobe already reads the media on a cold lookup");
   assert.equal(await inspector.inspect("https://video.example/master.m3u8"), first);
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 2);
   assert.equal(probes, 1);
+  now += 30001;
+  const refreshed = await inspector.inspect("https://video.example/master.m3u8");
+  assert.equal(refreshed.height, 606);
+  assert.equal(refreshed.reachable, true);
+  assert.equal(canceled, true);
+  assert.equal(requests.length, 5);
+  assert.equal(probes, 1, "verified dimensions and codecs outlive the availability check");
 });
 
 test("missing ffprobe preserves declared quality without fabricating codecs", async () => {

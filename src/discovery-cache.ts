@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Cache, readLimited } from "./cache.js";
 import type { Fetcher } from "./providers.js";
+import { timed } from "./loading.js";
 
 const MAX_BYTES = 64 * 1024;
 interface Record<T> { expires: number; value: T }
@@ -23,9 +24,9 @@ export class DiscoveryStore {
     if (!this.endpoint) return;
     try {
       const timeout = AbortSignal.timeout(750);
-      const response = await this.fetcher(this.endpoint, { method: "POST", headers: {
+      const response = await timed("redis.http", () => this.fetcher(this.endpoint!, { method: "POST", headers: {
         Authorization: `Bearer ${this.token}`, "Content-Type": "application/json"
-      }, body: JSON.stringify(command), signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+      }, body: JSON.stringify(command), signal: signal ? AbortSignal.any([signal, timeout]) : timeout }));
       if (!response.ok) { await response.body?.cancel(); return; }
       const data = JSON.parse(await readLimited(response, MAX_BYTES * 2 + 1024));
       if (data && !data.error) return data.result;

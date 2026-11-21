@@ -1,3 +1,5 @@
+import { count } from "./loading.js";
+
 export class Cache<T> {
   private entries = new Map<string, { expires: number; pending: Promise<T> }>();
   constructor(private limit: number) {}
@@ -73,6 +75,7 @@ export async function readBytes(response: Response, limit: number): Promise<Buff
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      count("bodyBytesRead", value.length);
       size += value.length;
       if (size > limit) throw new Error("Response exceeded size limit");
       chunks.push(value);

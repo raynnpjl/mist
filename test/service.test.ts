@@ -102,7 +102,7 @@ test("unavailable quality and bitrate stay explicit without invented badge token
   const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "fixture-key"), fixture.fetcher, inspector);
   const streams = await service.streams("series", "tt26235088:1:1");
   assert.equal(streams[0].name, "Unknown");
-  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: Unavailable\nLanguage: Chinese\nSubtitle: Chinese\n红牛云播");
+  assert.equal(streams[0].description, "狂飙 S01E01\nBitrate: Unavailable\nLanguage: Chinese\nSubtitle: Unknown\n红牛云播");
   assert.ok(!/1080p|WEB-DL|HDR|Atmos/.test(streams[0].behaviorHints.filename));
 });
 

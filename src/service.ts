@@ -7,10 +7,11 @@ import { DirectStream } from "./protocol.js";
 import { MkvDrama, MkvFile } from "./mkvdrama.js";
 import { RESOLUTIONS, resolutionFor } from "./resolutions.js";
 import { MkvHeaderInspector, MkvMetadata } from "./mkv-metadata.js";
+import { count, timed } from "./loading.js";
 
 export type StreamProvider = Provider | MkvDrama;
 interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string;
-  filename?: string; videoSize?: number; displayName?: string; host?: string; subtitles: string; headers?: Record<string, string>; averageBitrate?: number }
+  filename?: string; videoSize?: number; displayName?: string; host?: string; subtitles?: string; headers?: Record<string, string>; averageBitrate?: number }
 
 function present(candidate: Candidate, title: Title, request: VideoRequest, info: MediaInfo): DirectStream {
   const quality = info.height ? `${Math.round(info.height)}p` : "Unknown";
@@ -19,8 +20,14 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   const mbps = (n: number) => n.toLocaleString("en-US", { maximumSignificantDigits: 3, useGrouping: false });
   const rate = candidate.averageBitrate || info.bitrate;
   const bitrate = rate ? `${mbps(rate / 1_000_000)} Mbps` : "Unavailable";
+  const subtitles = info.subtitles || candidate.subtitles || "Unknown";
+  count("streams");
+  if (!info.height) count("missing.resolution");
+  if (!info.videoCodec || !info.audioCodec) count("missing.codecs");
+  if (!rate) count("missing.bitrate");
+  if (subtitles === "Unknown") count("missing.subtitles");
   const description = [`${candidate.displayName || title.displayName} ${episode}`, `Bitrate: ${bitrate}`,
-    `Language: ${candidate.language || "Unknown"}`, `Subtitle: ${candidate.subtitles}`,
+    `Language: ${candidate.language || "Unknown"}`, `Subtitle: ${subtitles}`,
     candidate.host ? `MKVDrama · ${candidate.host}` : `${candidate.source.name}云播`].join("\n");
   const extension = (candidate.filename || new URL(candidate.url).pathname).match(/\.(mp4|mkv)$/i)?.[1].toLowerCase() || "m3u8";
   const facts = [title.displayName, episode, info.height ? quality : undefined,
@@ -127,7 +134,7 @@ export class AddonService {
           (!collection && vodYear !== String(year)) || !allowed.has(name)) continue;
         records.push(vod);
         const parts = playables(vod, kind).filter(p => selected(p, vod, collection ? request : lookup, info));
-        for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang), subtitles: "Chinese",
+        for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang),
           url: part.url, group: part.group, releaseType: releaseType(vod) });
       }
       return { streams, records };
@@ -158,11 +165,11 @@ export class AddonService {
   async streams(type: string, videoId: string): Promise<DirectStream[]> {
     const request = parseVideo(type, videoId);
     if (!request) return [];
-    const title = await this.metadata.title(request);
+    const title = await timed("tmdb.title", () => this.metadata.title(request));
     if (!title) return [];
     // Numeric episodes remain usable when optional air-date metadata is unavailable.
-    const info = this.metadata.episode(title, request).catch(() => undefined);
-    const results = await Promise.allSettled(this.providers.map(async provider => {
+    const info = timed("tmdb.episode", () => this.metadata.episode(title, request)).catch(() => undefined);
+    const results = await Promise.allSettled(this.providers.map(provider => timed(`provider.${provider.source.id}`, async () => {
       if (provider instanceof MkvDrama) {
         const [english, episode] = await Promise.all([this.metadata.englishName(title, request).catch(() => undefined), info]);
         const primaryNames = [english, title.nativeName].filter((name): name is string => Boolean(name))
@@ -193,7 +200,7 @@ export class AddonService {
       }
       const candidates = await this.find(provider, title, request, info);
       return Promise.all(candidates.map(async candidate => ({ candidate, media: await this.inspector.inspect(candidate.url, this.inspectionTimeoutMs) })));
-    }));
+    })));
     if (results.length && results.every(r => r.status === "rejected")) throw new Error("All stream providers are temporarily unavailable");
     const unique = new Map<string, { candidate: Candidate; media: MediaInfo }>();
     for (const result of results) if (result.status === "fulfilled") {

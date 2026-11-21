@@ -1,6 +1,7 @@
 import { Cache, Pool, readLimited } from "./cache.js";
 import { Category, Page, Vod, categoryKind, Kind, value } from "./model.js";
 import { MKVDRAMA_SOURCE } from "./mkvdrama.js";
+import { count, timed } from "./loading.js";
 
 export const SOURCES = [
   { id: "hongniu", name: "红牛" },
@@ -39,7 +40,7 @@ export class Provider {
   status() { return { id: this.source.id, name: this.source.name, ...this.state }; }
 
   private async read(url: URL): Promise<Record<string, unknown>> {
-    const response = await this.fetcher(url, { headers: UPSTREAM_HEADERS, signal: AbortSignal.timeout(this.timeout) });
+    const response = await timed("vod.http", () => this.fetcher(url, { headers: UPSTREAM_HEADERS, signal: AbortSignal.timeout(this.timeout) }));
     if (!response.ok) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
     const data = JSON.parse(await readLimited(response, 8 * 1024 * 1024));
     if (!data || Number(data.code) !== 1 || !Array.isArray(data.list)) throw new Error("Invalid VOD response");
@@ -87,7 +88,9 @@ export class Provider {
   }
 
   cachedMatch(key: string): Promise<Vod[]> | undefined {
-    return this.matches.peek(key)?.then(async ids => {
+    const match = this.matches.peek(key);
+    count(match ? "vod.mappingHits" : "vod.mappingMisses");
+    return match?.then(async ids => {
       const data = await this.request({ ac: "detail", ids: ids.join(",") }, 2 * 60_000);
       const records = new Map((data.list as Vod[]).map(vod => [value(vod.vod_id), vod]));
       // A partial response must rediscover replacements rather than hide missing sources.
