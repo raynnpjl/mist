@@ -102,8 +102,8 @@ export function fixtures(records: Vod[], sourceCount = 2, pageSize = 20) {
     return Response.json({ code: 1, pagecount: Math.ceil(items.length / pageSize), list: data });
   };
   const pool = new Pool(6);
-  const probe: MediaProbe = async () => ({ width: 1920, height: 1080, bitrate: 2_500_000,
-    videoCodec: "h264", audioCodec: "aac", channelLayout: "stereo" });
+  const probe: MediaProbe = async () => ({ reachable: true, width: 1920, height: 1080, bitrate: 2_500_000,
+    videoCodec: "h264", audioCodec: "aac", channelLayout: "stereo", subtitles: "Chinese" });
   return { requests, fetcher, probe, inspector: new MediaInspector(fetcher, probe),
     providers: TEST_SOURCES.slice(0, sourceCount).map(s => new Provider(s, pool, fetcher)) };
 }

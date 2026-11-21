@@ -8,6 +8,7 @@ import { AddonService, StreamProvider } from "./service.js";
 import { HlsPlaylists } from "./hls.js";
 import { defaultSettings, parseSettings, RESOLUTIONS, Settings } from "./settings.js";
 import { accessGate } from "./access.js";
+import { observeLoading } from "./loading.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
   id: "org.mist.chinese", version: "1.4.3", name: "Mist",
@@ -133,7 +134,7 @@ export function createApp(installations: Accounts, createService: (key: string, 
       const router = await routers.get(`${id}:${installation.revision}:${installedManifest.logo}`, 6 * 60 * 60_000, async () => {
         const service = createService(installation.apiKey, installation.settings);
         const builder = new addonBuilder(installedManifest);
-        builder.defineStreamHandler(async args => ({ streams: (await service.streams(args.type, args.id)).map(stream =>
+        builder.defineStreamHandler(async args => ({ streams: (await observeLoading(() => service.streams(args.type, args.id))).map(stream =>
           /\.m3u8$/i.test(new URL(stream.url).pathname)
             ? { ...stream, url: playlists.url(stream.url, id, new URL(installedManifest.logo!).origin) } : stream), cacheMaxAge: 30 }));
         return getRouter(builder.getInterface());

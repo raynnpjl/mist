@@ -5,6 +5,58 @@ import { AddonService } from "../src/service.js";
 import { drama, fixtures } from "./fixtures.js";
 import { MediaInspector } from "../src/media.js";
 
+test("missing TMDB titles and episodes retry after five seconds instead of persisting for six hours", async t => {
+  let now = 10000, available = false, calls = 0;
+  t.mock.method(Date, "now", () => now);
+  const resolver = new MetadataResolver(async input => {
+    calls++;
+    if (!available) return new Response("Not found", { status: 404 });
+    return String(input).includes("/episode/") ? Response.json({ name: "Episode 1", air_date: "2024-01-02" }) :
+      Response.json({ id: 210757, original_name: "测试剧", first_air_date: "2024-01-01", origin_country: ["CN"] });
+  }, "fixture-key");
+  const request = { type: "series" as const, id: "tmdb:210757", season: 1, episode: 1 };
+  assert.equal(await resolver.title(request), undefined);
+  assert.equal(await resolver.title(request), undefined);
+  assert.equal(calls, 1);
+  available = true; now += 5001;
+  const title = (await resolver.title(request))!;
+  assert.equal(title.tmdbId, "210757");
+  available = false;
+  assert.equal(await resolver.episode(title, request), undefined);
+  available = true; now += 5001;
+  assert.equal((await resolver.episode(title, request))?.name, "Episode 1");
+  assert.equal(calls, 4);
+});
+
+test("episode metadata refreshes both cache layers after one hour", async t => {
+  let now = 10000, calls = 0;
+  t.mock.method(Date, "now", () => now);
+  const resolver = new MetadataResolver(async () => {
+    calls++;
+    return Response.json({ name: `Updated ${calls}`, air_date: "2024-01-02" });
+  }, "fixture-key");
+  const title = { names: ["测试剧"], displayName: "测试剧", year: 2024, tmdbId: "210757" };
+  const request = { type: "series" as const, id: "tmdb:210757", season: 1, episode: 1 };
+  assert.equal((await resolver.episode(title, request))?.name, "Updated 1");
+  now += 60 * 60_000 + 1;
+  assert.equal((await resolver.episode(title, request))?.name, "Updated 2");
+  assert.equal(calls, 2);
+});
+
+test("empty IMDb mappings retry promptly even when TMDB returns HTTP 200", async t => {
+  let now = 10000, available = false, searches = 0;
+  t.mock.method(Date, "now", () => now);
+  const resolver = new MetadataResolver(async input => {
+    if (String(input).includes("/find/")) { searches++; return Response.json({ tv_results: available ? [{ id: 210757 }] : [] }); }
+    return Response.json({ id: 210757, original_name: "测试剧", first_air_date: "2024-01-01", origin_country: ["CN"] });
+  }, "fixture-key");
+  const request = { type: "series" as const, id: "tt26235088", season: 1, episode: 1 };
+  assert.equal(await resolver.title(request), undefined);
+  available = true; now += 5001;
+  assert.equal((await resolver.title(request))?.tmdbId, "210757");
+  assert.equal(searches, 2);
+});
+
 test("configured TMDB lookup resolves IMDb IDs to native aliases and episode dates", async () => {
   const seen: URL[] = [];
   const fetcher: typeof fetch = async input => {

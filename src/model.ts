@@ -12,6 +12,18 @@ export interface Playable { episode: Episode; url: string; group: string }
 export const value = (input: unknown): string =>
   typeof input === "string" || typeof input === "number" ? String(input).trim() : "";
 
+const languages = new Intl.DisplayNames(["en"], { type: "language" });
+export function subtitleLanguages(codes: unknown[]): string | undefined {
+  const names = new Set<string>();
+  for (const language of codes) {
+    if (typeof language !== "string") continue;
+    const code = language.trim().replace(/_/g, "-").toLowerCase();
+    if (code === "und" || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(code)) continue;
+    try { names.add(languages.of(code) || code); } catch { /* Ignore malformed language tags. */ }
+  }
+  return names.size > 1 ? "Multiple" : [...names][0];
+}
+
 export function normalized(input: string): string {
   return input.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
 }
