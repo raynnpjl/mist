@@ -1,6 +1,7 @@
 import { Cache, Pool, readLimited } from "./cache.js";
 import { normalized, value } from "./model.js";
 import { Fetcher } from "./providers.js";
+import { timed } from "./loading.js";
 
 export interface VideoRequest {
   type: "movie" | "series";
@@ -35,10 +36,10 @@ export class MetadataResolver {
     if (!tmdbKey) throw new Error("Configure a TMDB API key on the Mist website");
   }
 
-  private json(url: URL): Promise<any> {
-    return this.responses.get(url.href, 6 * 60 * 60_000, () => this.pool.run(async () => {
-      const response = await this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.3 (Stremio addon)", Accept: "application/json" },
-        signal: AbortSignal.timeout(this.timeout) });
+  private json(url: URL, ttl = 6 * 60 * 60_000): Promise<any> {
+    return this.responses.get(url.href, value => value === undefined ? 5000 : ttl, () => this.pool.run(async () => {
+      const response = await timed("tmdb.http", () => this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.4 (Stremio addon)", Accept: "application/json" },
+        signal: AbortSignal.timeout(this.timeout) }));
       if (response.status === 404) { await response.body?.cancel(); return undefined; }
       if (!response.ok) {
         await response.body?.cancel();
@@ -50,14 +51,14 @@ export class MetadataResolver {
     }));
   }
 
-  private tmdb(path: string, params: Record<string, string> = {}) {
+  private tmdb(path: string, params: Record<string, string> = {}, ttl?: number) {
     const url = new URL(`https://api.themoviedb.org/3/${path}`);
     url.search = new URLSearchParams({ api_key: this.tmdbKey, language: "zh-CN", ...params }).toString();
-    return this.json(url);
+    return this.json(url, ttl);
   }
 
   title(request: VideoRequest): Promise<Title | undefined> {
-    return this.titles.get(`${request.type}:${request.id}`, 6 * 60 * 60_000,
+    return this.titles.get(`${request.type}:${request.id}`, value => value ? 6 * 60 * 60_000 : 5000,
       () => this.tmdbTitle(request));
   }
 
@@ -74,7 +75,7 @@ export class MetadataResolver {
     let id = request.id.startsWith("tmdb:") ? request.id.slice(5) : undefined;
     const endpoint = request.type === "movie" ? "movie" : "tv";
     if (!id) {
-      const found = await this.tmdb(`find/${request.id}`, { external_source: "imdb_id" });
+      const found = await this.tmdb(`find/${request.id}`, { external_source: "imdb_id" }, 5000);
       const matches = found?.[`${endpoint}_results`];
       if (!Array.isArray(matches) || matches.length !== 1) return;
       id = value(matches[0].id);
@@ -93,8 +94,8 @@ export class MetadataResolver {
 
   episode(title: Title, request: VideoRequest): Promise<EpisodeInfo | undefined> {
     if (request.type !== "series") return Promise.resolve(undefined);
-    return this.episodes.get(`${request.id}:${request.season}:${request.episode}`, 60 * 60_000, async () => {
-      const episode = await this.tmdb(`tv/${title.tmdbId}/season/${request.season}/episode/${request.episode}`);
+    return this.episodes.get(`${request.id}:${request.season}:${request.episode}`, value => value ? 60 * 60_000 : 5000, async () => {
+      const episode = await this.tmdb(`tv/${title.tmdbId}/season/${request.season}/episode/${request.episode}`, {}, 60 * 60_000);
       if (!episode) return;
       const date = value(episode.air_date).slice(0, 10);
       return { date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,

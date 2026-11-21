@@ -4,14 +4,15 @@ import { Cache, readBytes } from "./cache.js";
 import { DiscoveryCache, DiscoveryStore } from "./discovery-cache.js";
 import { mkvNetwork } from "./mkv-work.js";
 import { fileHost } from "./filehosts.js";
+import { subtitleLanguages } from "./model.js";
 import type { MkvFile } from "./mkvdrama.js";
 import type { Fetcher } from "./providers.js";
+import { timed } from "./loading.js";
 
 export interface MkvMetadata { subtitles?: string; averageBitrate?: number }
 type HeaderProbe = (prefix: Buffer, timeoutMs: number) => Promise<any>;
 const run = promisify(execFile);
 const HEADER_BYTES = 128 * 1024;
-const languages = new Intl.DisplayNames(["en"], { type: "language" });
 const DAY = 24 * 60 * 60_000;
 class InvalidPlayback extends Error {}
 
@@ -55,15 +56,9 @@ export function parseMkvMetadata(data: any, size: number): MkvMetadata {
     const bitrate = size * 8 / duration;
     if (Number.isFinite(bitrate)) result.averageBitrate = bitrate;
   }
-  const names = new Set<string>();
-  for (const stream of Array.isArray(data?.streams) ? data.streams : []) {
-    const language = stream?.tags?.language;
-    if (stream?.codec_type !== "subtitle" || typeof language !== "string") continue;
-    const code = language.trim().replace(/_/g, "-").toLowerCase();
-    if (code === "und" || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(code)) continue;
-    try { names.add(languages.of(code) || code); } catch { /* Ignore malformed language tags. */ }
-  }
-  if (names.size) result.subtitles = names.size > 1 ? "Multiple" : [...names][0];
+  const subtitles = subtitleLanguages((Array.isArray(data?.streams) ? data.streams : [])
+    .filter((stream: any) => stream?.codec_type === "subtitle").map((stream: any) => stream.tags?.language));
+  if (subtitles) result.subtitles = subtitles;
   return result;
 }
 
@@ -91,7 +86,7 @@ export class MkvHeaderInspector {
       const signal = AbortSignal.timeout(this.timeoutMs);
       return mkvNetwork.run(async () => {
         signal.throwIfAborted();
-        const response = await this.fetcher(url.href, { headers, signal, redirect: "manual" });
+        const response = await timed("mkv.headerHttp", () => this.fetcher(url.href, { headers, signal, redirect: "manual" }));
         const range = response.headers.get("Content-Range")?.match(/^bytes 0-(\d+)\/(\d+)$/i);
         const end = Number(range?.[1]), size = Number(range?.[2]);
         const encoding = response.headers.get("Content-Encoding");
@@ -111,7 +106,7 @@ export class MkvHeaderInspector {
           throw new Error("Invalid Matroska header prefix");
         }
         signal.throwIfAborted();
-        const result = parseMkvMetadata(await this.probe(prefix, Math.max(1, deadline - Date.now())), size);
+        const result = parseMkvMetadata(await timed("mkv.headerProbe", () => this.probe(prefix, Math.max(1, deadline - Date.now()))), size);
         signal.throwIfAborted();
         return result;
       }, signal, true);

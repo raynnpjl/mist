@@ -1,8 +1,20 @@
+import { count } from "./loading.js";
+
 export class Cache<T> {
   private entries = new Map<string, { expires: number; pending: Promise<T> }>();
   constructor(private limit: number) {}
 
   delete(key: string): void { this.entries.delete(key); }
+
+  peek(key: string): Promise<T> | undefined {
+    const entry = this.entries.get(key);
+    return entry && entry.expires > Date.now() ? entry.pending : undefined;
+  }
+
+  set(key: string, value: T, ttl: number): void {
+    this.entries.set(key, { expires: Date.now() + ttl, pending: Promise.resolve(value) });
+    if (this.entries.size > this.limit) this.entries.delete(this.entries.keys().next().value!);
+  }
 
   get(key: string, ttl: number | ((value: T) => number), load: () => Promise<T>): Promise<T> {
     const existing = this.entries.get(key);
@@ -63,6 +75,7 @@ export async function readBytes(response: Response, limit: number): Promise<Buff
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      count("bodyBytesRead", value.length);
       size += value.length;
       if (size > limit) throw new Error("Response exceeded size limit");
       chunks.push(value);
