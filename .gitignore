@@ -3,6 +3,7 @@ dist/
 data/
 reports/
 docs/
+graphify-out/
 .env
 vercel.json
 config.json
