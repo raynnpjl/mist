@@ -57,6 +57,49 @@ test("a fresh key needs TMDB setup; a returning key restores its installation an
   assert.match(logout.headers.get("set-cookie")!, /mist_access=;/);
 });
 
+test("workspace opens after configured providers are removed without losing credentials or other preferences", async t => {
+  const { db, store, login, request } = await serve(t);
+  const id = await configuredInstallation(store, "a".repeat(32));
+  const current = defaultSettings();
+  const saved = { ...current, sources: ["shandian", "hongniu", "yinghua"],
+    sourceOrder: ["shandian", "liangzi", "yinghua", ...current.sourceOrder.filter(id => id !== "liangzi")],
+    inspectionTimeoutMs: 2500, resolutions: [720], resolutionFirst: true };
+  db.records.get(id)!.preferences = saved;
+  const credential = JSON.stringify(db.records.get(id)!.credential);
+  const response = await login(TEST_ACCESS_KEY);
+  assert.equal(response.status, 200);
+  const cookie = response.headers.get("set-cookie")!.split(";")[0];
+  assert.deepEqual(await response.json(), { authenticated: true, installation: id });
+  const workspace = await request(`/api/installations/${id}`, cookie);
+  assert.equal(workspace.status, 200, "valid access key must open a workspace with stale provider references");
+  const config = await workspace.json();
+  const expected = { ...saved, sources: ["hongniu"], sourceOrder: saved.sourceOrder.filter(id => current.sourceOrder.includes(id)) };
+  assert.deepEqual(config.settings, expected);
+  assert.ok(config.providers.every(source => !["shandian", "yinghua"].includes(source.id)));
+  assert.ok(!JSON.stringify(config).includes("a".repeat(32)));
+  assert.equal(JSON.stringify(db.records.get(id)!.credential), credential);
+  assert.equal((await store.get(id))?.apiKey, "a".repeat(32));
+  assert.equal((await request(`/api/installations/${id}/settings`, cookie, "PUT", { ...expected, sources: ["yinghua"] })).status, 400,
+    "new preference submissions must still reject unknown providers");
+  assert.equal((await request(`/api/installations/${id}/settings`, cookie, "PUT", expected)).status, 200);
+  assert.deepEqual(db.records.get(id)!.preferences, expected, "saving replaces retired references with the current layout");
+});
+
+test("workspace opens with no sources enabled when every saved selection was removed", async t => {
+  const { db, store, login, request } = await serve(t);
+  const id = await configuredInstallation(store, "a".repeat(32));
+  db.records.get(id)!.preferences = { ...defaultSettings(), sources: ["shandian", "yinghua"], sourceOrder: ["yinghua", "shandian"] };
+  const response = await login(TEST_ACCESS_KEY), cookie = response.headers.get("set-cookie")!.split(";")[0];
+  const workspace = await request(`/api/installations/${id}`, cookie);
+  assert.equal(workspace.status, 200);
+  const config = await workspace.json();
+  assert.deepEqual(config.settings.sources, [], "do not silently enable providers the account never selected");
+  assert.deepEqual(config.settings.sourceOrder, defaultSettings().sourceOrder);
+  const selected = { ...config.settings, sources: ["hongniu"] };
+  assert.equal((await request(`/api/installations/${id}/settings`, cookie, "PUT", selected)).status, 200);
+  assert.deepEqual((await store.get(id))?.settings, selected);
+});
+
 test("accounts cannot read, modify or replace another account's installation", async t => {
   const { store, db, login, request } = await serve(t);
   await configuredInstallation(store, "a".repeat(32));

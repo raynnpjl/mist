@@ -69,6 +69,15 @@ test("preferences reject empty, duplicate or unknown sources and invalid time wi
     { ...defaultSettings(), sources: ["hongniu"], inspectionTimeoutMs: 1000 });
 });
 
+test("stored preference reconciliation still rejects malformed settings", () => {
+  const settings = defaultSettings();
+  for (const invalid of [{ sources: [1] }, { sources: [""] }, { sources: ["invalid/id"] },
+    { sources: ["removed", "removed"] }, { sourceOrder: [null] }, { inspectionTimeoutMs: 999 },
+    { resolutions: [] }, { resolutionFirst: "true" }]) {
+    assert.equal(parseSettings({ ...settings, ...invalid }, "stored"), undefined);
+  }
+});
+
 test("resolution preferences default to all choices and reject empty, duplicate or unsupported choices", () => {
   const settings = { ...defaultSettings(), sources: ["mkvdrama"] };
   assert.deepEqual(settings.resolutions, [360, 480, 720, 1080, 2160, "unknown"]);
