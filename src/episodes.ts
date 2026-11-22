@@ -17,18 +17,20 @@ function part(input: string): string {
     .replace(/^[第期集日]+|[期集日]+$/g, "");
 }
 
-export function episodeFor(label: string, show: string, kind: Kind): Episode {
+export function episodeFor(label: string, show: string, kind: Kind, year?: number): Episode {
   const title = label.trim();
   if (kind === "movie") return { key: "movie", title };
   const body = normalized(title).replace(normalized(show), "");
+  const short = kind === "variety" && year ? title.match(/(?<!\d)(\d{1,2})[.\-/月](\d{1,2})日?(?=期|$)/) : undefined;
   const date = title.match(/(20\d{2})[.\-/年](\d{1,2})[.\-/月](\d{1,2})日?/) ||
-    title.match(/(20\d{2})(\d{2})(\d{2})/);
+    title.match(/(20\d{2})(\d{2})(\d{2})/) || short && [short[0], String(year), short[1], short[2]];
   if (date) {
     const [, year, month, day] = date;
     const stamp = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
     const parsed = new Date(`${stamp}T00:00:00.000Z`);
     if (!Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(stamp)) {
       const suffix = part(body.replace(normalized(date[0]), "")
+        .replace(/^第(?:1|一)季/, "")
         .replace(/^第(?:\d+|[零〇一二两三四五六七八九十百千]+)[集期话回]/, ""));
       return { key: `date:${stamp}:${suffix || "main"}`, title, released: parsed.toISOString() };
     }
@@ -46,7 +48,7 @@ export function episodeFor(label: string, show: string, kind: Kind): Episode {
   return { key: `label:${body || normalized(title)}`, title };
 }
 
-export function playables(vod: Vod, kind: Kind): Playable[] {
+export function playables(vod: Vod, kind: Kind, year?: number): Playable[] {
   const groups = value(vod.vod_play_from).split("$$$");
   const result: Playable[] = [];
   for (const [index, playlist] of value(vod.vod_play_url).split("$$$").entries()) {
@@ -57,7 +59,7 @@ export function playables(vod: Vod, kind: Kind): Playable[] {
       if (!url || !/\.(m3u8|mp4)$/i.test(new URL(url).pathname)) continue;
       const label = entry.slice(0, split).trim();
       if (!label) continue;
-      result.push({ episode: episodeFor(label, value(vod.vod_name), kind), url, group: groups[index] || "HLS" });
+      result.push({ episode: episodeFor(label, value(vod.vod_name), kind, year), url, group: groups[index] || "HLS" });
     }
   }
   return result;

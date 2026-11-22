@@ -9,7 +9,8 @@ export interface VideoRequest {
   season?: number;
   episode?: number;
 }
-export interface Title { names: string[]; displayName: string; nativeName?: string; year: number; tmdbId: string }
+export interface Title { names: string[]; displayName: string; nativeName?: string; year: number; tmdbId: string;
+  seasons?: { number: number; name: string; year?: number }[] }
 export interface EpisodeInfo { year?: number; date?: string; name?: string }
 
 export function parseVideo(type: string, id: string): VideoRequest | undefined {
@@ -38,7 +39,7 @@ export class MetadataResolver {
 
   private json(url: URL, ttl = 6 * 60 * 60_000): Promise<any> {
     return this.responses.get(url.href, value => value === undefined ? 5000 : ttl, () => this.pool.run(async () => {
-      const response = await timed("tmdb.http", () => this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.7 (Stremio addon)", Accept: "application/json" },
+      const response = await timed("tmdb.http", () => this.fetcher(url, { headers: { "User-Agent": "Mist/1.4.8 (Stremio addon)", Accept: "application/json" },
         signal: AbortSignal.timeout(this.timeout) }));
       if (response.status === 404) { await response.body?.cancel(); return undefined; }
       if (!response.ok) {
@@ -89,7 +90,9 @@ export class MetadataResolver {
       ...alternatives.filter((a: any) => ["CN", "HK", "TW", "MO"].includes(a.iso_3166_1)).map((a: any) => a.title)]);
     const year = yearOf(data.release_date || data.first_air_date);
     if (!names.length || !year) return;
-    return { names, displayName: names[0], nativeName: value(data.original_title || data.original_name) || undefined, year, tmdbId: id };
+    return { names, displayName: names[0], nativeName: value(data.original_title || data.original_name) || undefined, year, tmdbId: id,
+      ...(Array.isArray(data.seasons) ? { seasons: data.seasons.map((season: any) => ({ number: season.season_number,
+        name: value(season.name), year: yearOf(season.air_date) || undefined })) } : {}) };
   }
 
   episode(title: Title, request: VideoRequest): Promise<EpisodeInfo | undefined> {

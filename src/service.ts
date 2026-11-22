@@ -73,13 +73,13 @@ function releaseType(vod: Vod): string | undefined {
   return types.find(([pattern]) => pattern.test(text))?.[1];
 }
 
-function selected(playable: Playable, vod: Vod, request: VideoRequest, info?: EpisodeInfo): boolean {
+function selected(playable: Playable, vod: Vod, request: VideoRequest, info?: EpisodeInfo, fullBroadcast = false): boolean {
   if (request.type === "movie") return true;
   const key = playable.episode.key;
   // A season-specific provider entry numbers its own episodes from season 1.
   const name = normalized(value(vod.vod_name));
   const ownSeason = request.season! > 1 && new RegExp(`(?:第(?:${request.season}|${chineseOrdinal(request.season!)})季|${request.season})$`).test(name);
-  const part = catalogPart(info?.name || "");
+  const part = fullBroadcast ? undefined : catalogPart(info?.name || "");
   if (info?.name && chineseKind(vod) === "variety") {
     const reference = episodeFor(info.name, value(vod.vod_name), "variety").key.match(/^episode:(\d+):(\d+):(.+)$/);
     const actual = key.match(/^episode:(\d+):(\d+):(.+)$/);
@@ -88,8 +88,10 @@ function selected(playable: Playable, vod: Vod, request: VideoRequest, info?: Ep
   }
   if (key === `episode:${request.season}:${request.episode}:main`) return true;
   if (ownSeason && key === `episode:1:${request.episode}:main`) return true;
+  if (fullBroadcast && info?.name && key === `label:${normalized(info.name)}`) return true;
   if (info?.date && key.startsWith(`date:${info.date}:`)) {
-    return key === `date:${info.date}:${part || "main"}`;
+    return key === `date:${info.date}:${part || "main"}` ||
+      fullBroadcast && Boolean(info.name) && key === `date:${info.date}:${normalized(info.name!)}`;
   }
   return false;
 }
@@ -114,15 +116,22 @@ export class AddonService {
   }
 
   private async find(provider: Provider, title: Title, request: VideoRequest, episodeInfo: Promise<EpisodeInfo | undefined>): Promise<Candidate[]> {
+    // This catalog groups independently named themed series into numbered seasons.
+    const special = request.type === "series" && title.tmdbId === "239870";
+    const season = special ? title.seasons?.find(season => season.number === request.season) : undefined;
+    const theme = season && normalized(season.name).match(/^(.*篇)(?:第(\d+)季)?$/);
+    if (special && (!theme || !season?.year)) return [];
     // TMDB keeps the four 奔跑吧兄弟 seasons before 奔跑吧 restarts its numbering in 2017.
     const keepRunning = request.type === "series" && title.tmdbId === "98031";
-    const lookup = keepRunning && request.season! > 4 ? { ...request, season: request.season! - 4 } : request;
-    const lookupTitle = keepRunning ? { ...title,
+    const lookup = theme ? { ...request, season: Number(theme[2] || 1) } :
+      keepRunning && request.season! > 4 ? { ...request, season: request.season! - 4 } : request;
+    const lookupTitle = theme ? { ...title, names: [`奔跑吧·${theme[1]}`], nativeName: `奔跑吧·${theme[1]}`, year: season!.year! } :
+      keepRunning ? { ...title,
       names: [...new Set([request.season! > 4 ? "奔跑吧" : "奔跑吧兄弟", ...title.names])] } : title;
     const names = titleNames(lookupTitle, lookup);
     const allowed = new Set(names.map(normalized));
     const select = (items: Vod[], info?: EpisodeInfo) => {
-      const year = request.season && request.season > 1 ? info?.year || title.year : title.year;
+      const year = special ? lookupTitle.year : request.season && request.season > 1 ? info?.year || title.year : title.year;
       const streams: Candidate[] = [], records: Vod[] = [];
       for (const vod of items) {
         const kind = chineseKind(vod);
@@ -131,18 +140,19 @@ export class AddonService {
         const annualName = kind === "variety" && name.match(/^(.*)((?:19|20)\d{2})$/);
         if (annualName && annualName[2] === vodYear && allowed.has(annualName[1])) name = annualName[1];
         if (kind === "animation" && request.season === 1 && name.endsWith("1") && allowed.has(name.slice(0, -1))) name = name.slice(0, -1);
-        const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
+        const collection = !special && request.season! > 1 && title.names.some(n => normalized(n) === name) &&
           vodYear === String(title.year);
         if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||
           (!collection && vodYear !== String(year)) || !allowed.has(name)) continue;
         records.push(vod);
-        const parts = playables(vod, kind).filter(p => selected(p, vod, collection ? request : lookup, info));
+        const parts = playables(vod, kind, special ? info?.year : undefined)
+          .filter(p => selected(p, vod, collection ? request : lookup, info, special));
         for (const part of parts) streams.push({ source: provider.source, language: language(vod.vod_lang),
           url: part.url, group: part.group, releaseType: releaseType(vod) });
       }
       return { streams, records };
     };
-    const key = JSON.stringify([request.type, title.tmdbId, title.names, title.year, request.season]);
+    const key = JSON.stringify([request.type, title.tmdbId, lookupTitle.names, lookupTitle.year, request.season]);
     const cached = provider.cachedMatch(key);
     if (cached) {
       const [records, info] = await Promise.all([cached, episodeInfo]);
@@ -153,7 +163,7 @@ export class AddonService {
     const searches = lookup.season === 1 ? lookupTitle.names : names;
     const baseNames = [lookupTitle.nativeName, ...lookupTitle.names].filter((name): name is string => Boolean(name)).slice(0, 3);
     const queries = [...new Set([...searches.slice(0, lookup.season! > 1 ? 6 : 3), ...baseNames,
-      ...baseNames.map(name => name.normalize("NFKC").replace(/[\p{P}\p{Z}\s]/gu, ""))])];
+      ...baseNames.map(name => name.normalize("NFKC").replace(/[\p{P}\p{Z}\s]/gu, "")), ...(special ? ["奔跑吧"] : [])])];
     for (const search of queries) {
       for (let page = 1; page <= 5; page++) {
         const [data, info] = await Promise.all([provider.page(page, undefined, search), episodeInfo]);
