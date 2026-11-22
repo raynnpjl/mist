@@ -2,6 +2,7 @@ import { Cache, Pool, readLimited } from "./cache.js";
 import { normalized, value } from "./model.js";
 import { Fetcher } from "./providers.js";
 import { timed } from "./loading.js";
+import { isoDate } from "./episodes.js";
 
 export interface VideoRequest {
   type: "movie" | "series";
@@ -10,8 +11,10 @@ export interface VideoRequest {
   episode?: number;
 }
 export interface Title { names: string[]; displayName: string; nativeName?: string; year: number; tmdbId: string;
-  seasons?: { number: number; name: string; year?: number }[] }
+  seasons?: { number: number; name: string; year?: number; episodeCount?: number }[]; apiAliases?: string[] }
 export interface EpisodeInfo { year?: number; date?: string; name?: string }
+export interface CatalogEpisode extends EpisodeInfo { number: number }
+export interface ApiSeason { episodes: CatalogEpisode[]; complete: boolean; year?: number; name?: string }
 
 export function parseVideo(type: string, id: string): VideoRequest | undefined {
   if (type !== "movie" && type !== "series") return;
@@ -31,6 +34,7 @@ const aliases = (items: unknown[]): string[] => [...new Map(items.map(value).fil
 export class MetadataResolver {
   private titles = new Cache<Title | undefined>(512);
   private episodes = new Cache<EpisodeInfo | undefined>(1024);
+  private apiSeasons = new Cache<ApiSeason | undefined>(128);
   private responses = new Cache<any>(512);
   private pool = new Pool(4);
   constructor(private fetcher: Fetcher, private tmdbKey: string, private timeout = 8000) {
@@ -91,8 +95,37 @@ export class MetadataResolver {
     const year = yearOf(data.release_date || data.first_air_date);
     if (!names.length || !year) return;
     return { names, displayName: names[0], nativeName: value(data.original_title || data.original_name) || undefined, year, tmdbId: id,
+      apiAliases: aliases(alternatives.map((a: any) => a.title)),
       ...(Array.isArray(data.seasons) ? { seasons: data.seasons.map((season: any) => ({ number: season.season_number,
-        name: value(season.name), year: yearOf(season.air_date) || undefined })) } : {}) };
+        name: value(season.name), year: yearOf(season.air_date) || undefined, episodeCount: season.episode_count })) } : {}) };
+  }
+
+  async apiSeason(title: Title, request: VideoRequest): Promise<ApiSeason> {
+    const path = `tv/${title.tmdbId}/season/${request.season}`;
+    const ttl = 60 * 60_000;
+    const expected = title.seasons?.find(summary => summary.number === request.season)?.episodeCount;
+    const season = await this.apiSeasons.get(`${path}:${expected || 0}`, season => season ? ttl : 5000, async () => {
+      const data = await this.tmdb(path, {}, ttl);
+      if (!Array.isArray(data?.episodes) || data.season_number !== undefined && data.season_number !== request.season) return;
+      const episodes: CatalogEpisode[] = [];
+      const seen = new Set<number>();
+      for (const item of data.episodes) {
+        const number = item?.episode_number;
+        if (!Number.isSafeInteger(number) || number < 1 || number > 99_999 || seen.has(number) ||
+          item.season_number !== undefined && item.season_number !== request.season) return;
+        seen.add(number);
+        const date = isoDate(value(item.air_date));
+        episodes.push({ number, date, year: yearOf(date) || undefined, name: value(item.name) });
+      }
+      if (!episodes.length) return;
+      episodes.sort((a, b) => a.number - b.number);
+      return { episodes, complete: !expected || episodes.length >= expected,
+        year: yearOf(data.air_date) || episodes[0].year, name: value(data.name) };
+    }).catch(() => undefined);
+    if (season?.episodes.some(episode => episode.number === request.episode)) return season;
+    // An absent season response or a stale episode list can still yield a verified individual episode.
+    const episode = await timed("tmdb.episode", () => this.episode(title, request)).catch(() => undefined);
+    return { ...season, complete: false, episodes: [...season?.episodes || [], { ...episode, number: request.episode! }] };
   }
 
   episode(title: Title, request: VideoRequest): Promise<EpisodeInfo | undefined> {

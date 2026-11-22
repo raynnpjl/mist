@@ -341,7 +341,8 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"] });
   const factory = (key: string, settings: ReturnType<typeof defaultSettings>) => new AddonService(
     settings.sources.includes("mkvdrama") ? [source] : [], new MetadataResolver(fetcher, key), fetcher,
-    new MediaInspector(fetcher, async () => { assert.fail("MKVDrama must not invoke an unbounded URL probe"); }), settings.resolutions, headerInspector);
+    new MediaInspector(fetcher, async () => { assert.fail("MKVDrama must not invoke an unbounded URL probe"); }), settings.resolutions, headerInspector,
+    settings.resolutionFirst, settings.inspectionTimeoutMs, settings.includeEpisodeExtras);
   const server = createApp(store, factory, [source], new HlsPlaylists(redis.env.MIST_ENCRYPTION_KEY, fetcher), redis.env.MIST_ENCRYPTION_KEY).listen(0, "127.0.0.1");
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   await once(server, "listening");
@@ -375,9 +376,10 @@ test("addon HTTP route returns direct URLs with capped header metadata and prese
   assert.equal(headerRequests.length, 2, "excluded resolutions must not trigger MKV header reads");
   assert.ok(parseSettings({ ...defaultSettings(), sources: ["mkvdrama"] }));
   assert.ok(defaultSettings().sources.includes("mkvdrama"));
-  await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"] });
+  await store.saveSettings(id, { ...defaultSettings(), sources: ["mkvdrama"], includeEpisodeExtras: true });
   const repeated = (await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams;
-  assert.ok(repeated[0].description.includes("Bitrate: 2 Mbps\n"));
+  assert.deepEqual(repeated, streams, "the API extras setting leaves MKVDrama cards unchanged");
+  assert.ok(vod.requests.every(url => !/\/season\/\d+$/.test(url.pathname)), "MKVDrama-only lookups do not retrieve season snapshots");
   assert.equal(headerRequests.length, 2, "parsed metadata survives service recreation without rereading the file");
   await store.saveSettings(id, { ...defaultSettings(), sources: ["hongniu"] });
   assert.deepEqual((await (await fetch(`${base}/${id}/stream/series/tmdb:210757:1:2.json`)).json()).streams, []);

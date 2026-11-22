@@ -7,7 +7,7 @@ import { AddonService } from "../src/service.js";
 import { createProviders } from "../src/providers.js";
 import { drama, fixtures, TEST_SOURCES } from "./fixtures.js";
 
-test("provider searches start while episode metadata is still loading", async () => {
+test("provider searches start while season metadata is still loading", async () => {
   const fixture = fixtures([drama()]);
   let release!: (response: Response) => void, began!: () => void;
   const gate = new Promise<Response>(resolve => { release = resolve; });
@@ -15,7 +15,7 @@ test("provider searches start while episode metadata is still loading", async ()
   let providerStarted = false;
   const fetcher: typeof fetch = async (input, options) => {
     const url = new URL(String(input));
-    if (url.hostname === "api.themoviedb.org" && url.pathname.includes("/episode/")) {
+    if (url.hostname === "api.themoviedb.org" && url.pathname.endsWith("/season/1")) {
       began(); return gate;
     }
     if (url.searchParams.get("ac") === "detail") providerStarted = true;
@@ -27,9 +27,9 @@ test("provider searches start while episode metadata is still loading", async ()
   try {
     await started;
     await setImmediate();
-    assert.ok(providerStarted, "provider discovery must overlap episode metadata");
+    assert.ok(providerStarted, "provider discovery must overlap season metadata");
   } finally {
-    release(Response.json({ name: "Episode 1", air_date: "2024-11-13" }));
+    release(Response.json({ episodes: [{ episode_number: 1, name: "Episode 1", air_date: "2024-11-13" }] }));
     assert.equal((await pending).length, 2);
   }
 });
