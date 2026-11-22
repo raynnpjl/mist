@@ -1,4 +1,4 @@
-export type Kind = "movie" | "drama" | "variety";
+export type Kind = "movie" | "drama" | "variety" | "animation";
 export type Vod = Record<string, unknown>;
 export interface Category { id: string; name: string }
 export interface Page { items: Vod[]; pages: number; endpoint: string }
@@ -28,15 +28,17 @@ export function normalized(input: string): string {
   return input.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
 }
 
-const movies = /^(电影|电影片|动作片|喜剧片|爱情片|科幻片|恐怖片|剧情片|战争片|悬疑片|惊悚片|犯罪片|奇幻片|冒险片|武侠片|古装片|灾难片|纪录片|记录片)$/;
+const movies = /^(电影|电影片|动作片|喜剧片|爱情片|科幻片|恐怖片|剧情片|战争片|悬疑片|惊悚片|犯罪片|奇幻片|冒险片|武侠片|古装片|灾难片|纪录片|记录片|动画片|动漫电影|动画电影)$/;
 const dramas = /^(国产剧|大陆剧|内地剧|香港剧|港澳剧|台湾剧|港台剧)$/;
 const variety = /^(大陆综艺|港台综艺|国产综艺|综艺|综艺片)$/;
-const chineseRegion = /中国|大陆|内地|香港|台湾|台灣|澳门|澳門|中华|中華|china|hong\s*kong|taiwan|maca[ou]/i;
+const animation = /^(?:(?:国产|中国|大陆|港台|台湾|香港)?动漫|动漫片)$/;
+const chineseRegion = /中国|国产|大陆|内地|香港|台湾|台灣|澳门|澳門|中华|中華|china|hong\s*kong|taiwan|maca[ou]/i;
 
 export function categoryKind(name: string): Kind | undefined {
   if (movies.test(name)) return "movie";
   if (dramas.test(name)) return "drama";
   if (variety.test(name)) return "variety";
+  if (animation.test(name)) return "animation";
 }
 
 export function chineseKind(vod: Vod): Kind | undefined {
@@ -50,7 +52,8 @@ export function chineseKind(vod: Vod): Kind | undefined {
   const area = value(vod.vod_area);
   if (area) return chineseRegion.test(area) ? kind : undefined;
   // A Chinese category is sufficient; a Chinese dub of a foreign movie is not.
-  if (kind === "drama" || /^(大陆|港台|国产)综艺$/.test(category)) return kind;
+  if (kind === "drama" || /^(大陆|港台|国产)综艺$/.test(category) ||
+    kind === "animation" && /^(国产|中国|大陆|港台|台湾|香港)动漫$/.test(category)) return kind;
 }
 
 export function webUrl(input: unknown): string | undefined {
