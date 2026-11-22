@@ -3,8 +3,8 @@ dist/
 data/
 reports/
 docs/
+graphify-out/
 .env
-.env.example
 vercel.json
 config.json
 *.log

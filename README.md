@@ -13,7 +13,7 @@
 [![Nodejs][badge-node]](package.json)
 [![Nuvio · Stremio][badge-clients]](#install)
 
-[Features](#features) · [Install](#install) · [Configuration](#configuration) · [Architecture](#architecture) · [FAQ](#faq) · [License](#license) · [Self-host](self-host.md)
+[Features](#features) · [Install](#install) · [Configuration](#configuration) · [FAQ](#faq) · [License](#license) · [Self-host](self-host.md)
 
 </div>
 
@@ -68,23 +68,6 @@ Open your deployment's `/configure` page to manage Mist. Source selections and l
 | **Detail lookup time** | 6.5 seconds | Adjust from 1–10 seconds in half-second steps. Shorter windows can return fewer media details; title searches and provider requests add their own time. |
 
 Use **Status** to check source availability, response times and last-check timestamps. Save source and lookup changes to apply them to your existing installation. Server credentials and provider endpoints are covered in [Self-host](self-host.md).
-
-## Architecture
-
-Mist runs on Nodejs and Express. It resolves title and episode metadata through TMDB, searches enabled providers, and inspects candidate streams before returning matching choices to your player.
-
-```mermaid
-flowchart LR
-  Player["Nuvio / Stremio"] -->|Streams and HLS playlists| Mist["Mist"]
-  Mist -->|Title and episode metadata| TMDB["TMDB"]
-  Mist -->|Search| Sources["VOD APIs / MKVDrama"]
-  Mist -->|Inspection and playlist processing| Hosts["Video CDNs / file hosts"]
-  Player -->|Direct video playback| Hosts
-```
-
-Neon stores accounts, encrypted TMDB credentials and saved preferences. In-process caches reuse lookup and inspection results; Upstash Redis shares reusable MKVDrama discovery and file metadata. FFprobe supplies media details and timing checks for ad detection.
-
-HLS playlists pass through Mist for verified ad removal. Video segments and direct files stream from their hosts to the player.
 
 ## FAQ
 
