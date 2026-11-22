@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chineseKind } from "../src/model.js";
-import { episodeFor, playables } from "../src/episodes.js";
+import { normalizeEpisode, extractPlayback } from "../src/episodes.js";
 import { drama } from "./fixtures.js";
 
 test("Chinese filtering uses origin/category, not dubbed language", () => {
@@ -39,41 +39,38 @@ test("Chinese animated films remain movies and require a Chinese origin", () => 
   }
 });
 
-test("grouped playback excludes webpage players and preserves signed HLS URLs", () => {
-  const items = playables(drama(), "drama");
-  assert.equal(items.length, 2);
-  assert.equal(items[0].episode.key, "episode:1:1:main");
-  assert.equal(items[0].group, "m3u8");
-  const signed = drama(1, { vod_play_url: "第1集$https://v.example/index.m3u8?token=a$b&expires=1#恶意$javascript:alert(1)" });
-  assert.equal(playables(signed, "drama")[0].url, "https://v.example/index.m3u8?token=a$b&expires=1");
+test("playback extraction keeps positions and line identities while rejecting unsupported URLs", () => {
+  const signed = drama(1, { vod_play_from: "same$$$same",
+    vod_play_url: "第1集$https://v.example/index.m3u8?token=a$b&expires=1#无效$javascript:alert(1)$$$未知$https://v.example/file.mp4" });
+  const entries = extractPlayback(signed, "hongniu");
+  assert.deepEqual(entries.map(({ provider, showId, line, group, position, label }) => [provider, showId, line, group, position, label]), [
+    ["hongniu", "1", 0, "same", 0, "第1集"], ["hongniu", "1", 0, "same", 1, "无效"], ["hongniu", "1", 1, "same", 0, "未知"]
+  ]);
+  assert.equal(entries[0].url, "https://v.example/index.m3u8?token=a$b&expires=1");
+  assert.equal(entries[1].url, undefined);
+  assert.ok(entries[2].url?.endsWith("/file.mp4"));
 });
 
-test("episode labels align across padding and Chinese numerals", () => {
-  const labels = ["第01集", "第1集", "第一集", "1", "S01E01"];
-  assert.equal(new Set(labels.map(label => episodeFor(label, "测试剧", "drama").key)).size, 1);
-  assert.equal(episodeFor("第十二集", "测试剧", "drama").key, "episode:1:12:main");
-  assert.notEqual(episodeFor("第1集预告", "测试剧", "drama").key, episodeFor("第1集", "测试剧", "drama").key);
-});
-
-test("variety dates, parts and bonus episodes remain separate", () => {
-  const show = "奔跑吧兄弟第一季";
-  const a = episodeFor(`${show}2014.10.10期`, show, "variety");
-  const b = episodeFor("20141010", show, "variety");
-  assert.equal(a.key, b.key);
-  assert.equal(a.released, "2014-10-10T00:00:00.000Z");
-  const labels = ["20261113上", "2026-11-13（下）", "20261113加更", "20261113纯享"];
-  assert.equal(new Set(labels.map(x => episodeFor(x, show, "variety").key)).size, 4);
-  assert.equal(episodeFor("20261399", show, "variety").released, undefined);
-  const items = playables(drama(1, { vod_name: show, vod_play_url: labels.map((l, i) => `${l}$https://v.example/${i}.m3u8`).join("#") }), "variety");
-  assert.equal(new Set(items.map(p => p.episode.key)).size, 4);
-});
-
-test("dated variety labels ignore redundant broadcast numbers and preserve parts and extras", () => {
-  for (const label of ["20260501", "第20260501期", "20260501第2期", "20260501（第二期）"]) {
-    assert.equal(episodeFor(label, "奔跑吧第十季", "variety").key, "date:2026-05-01:main", label);
+test("episode normalization preserves independent date, period and part evidence", () => {
+  for (const label of ["第十二期", "第12集", "EP12", "E12", "Episode 12", "ＥＰ１２", "12"]) {
+    assert.equal(normalizeEpisode(label).number, 12, label);
   }
-  for (const [label, suffix] of [["20260501第2期上", "上"], ["20260501（第2期下）", "下"],
-    ["20260501第2期加更", "加更"], ["20260501第2期会员版", "会员版"]]) {
-    assert.equal(episodeFor(label, "奔跑吧第十季", "variety").key, `date:2026-05-01:${suffix}`, label);
+  for (const date of ["20240517", "2024-05-17", "2024/05/17", "2024.05.17", "2024年5月17日", "２０２４／５／１７"]) {
+    const item = normalizeEpisode(`節目名稱 ${date}（第十二期下）`, ["節目名稱"]);
+    assert.equal(item.date, "2024-05-17", date);
+    assert.equal(item.number, 12, date);
+    assert.equal(item.part, "下", date);
   }
+  for (const label of ["05-17", "5月17日", "0517"]) assert.equal(normalizeEpisode(label).monthDay, "05-17");
+  assert.equal(normalizeEpisode("0517").number, 517);
+  assert.equal(normalizeEpisode("20240230").date, undefined);
+});
+
+test("classifies edition markers without treating narrative uses as editions", () => {
+  for (const [label, category] of [
+    ["第1期 会员加更", "member_extra"], ["第1期加更版", "member_extra"], ["第1期舞台纯享", "alternate"],
+    ["第1期加长版", "extended"], ["第1期未刪減版", "extended"], ["第1期幕后", "behind_scenes"],
+    ["第1期花絮", "behind_scenes"], ["第1期下期预告", "preview"], ["先导片", "preview"], ["番外", "special"],
+    ["特别篇", "special"], ["大礼包", "unknown"], ["第1期：会员加更计划", "unknown"], ["第1期 收官之夜", "regular_candidate"]
+  ]) assert.equal(normalizeEpisode(label).contentType, category, label);
 });

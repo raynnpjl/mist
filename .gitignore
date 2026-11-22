@@ -5,4 +5,6 @@ reports/
 docs/
 .env
 .env.example
+vercel.json
+config.json
 *.log
