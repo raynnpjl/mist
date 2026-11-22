@@ -94,7 +94,7 @@ export class Accounts {
     decipher.setAAD(Buffer.from(id));
     decipher.setAuthTag(Buffer.from(data.tag, "hex"));
     const apiKey = Buffer.concat([decipher.update(Buffer.from(data.ciphertext, "hex")), decipher.final()]).toString("utf8");
-    const settings = parseSettings(row.preferences);
+    const settings = parseSettings(row.preferences, "stored");
     if (!settings) throw new Error("Invalid account preferences");
     return { apiKey, settings, revision: createHash("sha256").update(JSON.stringify([data, row.preferences])).digest("hex") };
   }
