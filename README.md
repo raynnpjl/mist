@@ -17,7 +17,7 @@
 
 </div>
 
-Mist is a private, self-hosted addon that finds Chinese movies, dramas, animation and variety streams from your configured providers. Browse your existing catalogs, open a title or episode, and choose a Mist source to play.
+Mist is a http addon that finds Chinese movies, dramas, animation and variety streams from your configured providers. Browse your existing catalogs, open a title or episode, and choose a Mist source to play.
 
 Mist supplies streams alongside catalog addons such as cNative. Your catalog handles browsing and metadata; your player handles playback and watch progress. Video travels directly from the source to your player, while Mist processes HLS playlists when needed.
 
