@@ -6,7 +6,7 @@
 - **Neon PostgreSQL** for accounts and saved preferences.
 - **Upstash Redis** with an HTTPS REST URL and read/write REST token for discovery caches.
 - **FFmpeg**, including `ffprobe`, for full media inspection and unlabelled ad detection. The Docker image includes it.
-- Provider endpoints in the included [`config.json`](config.json), plus a TMDB v3 API key entered through the workspace.
+- Provider endpoints in a local `config.json`, created from [`configexample.json`](configexample.json), plus a TMDB v3 API key entered through the workspace.
 
 ## 1. Install and configure
 
@@ -15,6 +15,19 @@ From the repository root:
 ```sh
 npm ci
 ```
+
+Create `config.json` in the repository root before running `npm run build`, starting Mist or building the Docker image:
+
+```sh
+cp -n configexample.json config.json
+```
+
+The `-n` flag preserves an existing `config.json`. Edit your local copy before use:
+
+- Replace the example API URLs and provider names with your provider settings. API providers support optional ordered `backup_apis`; remove that field if you have no backups.
+- Rename `web_site.mkvexample` to `web_site.mkvdrama`, then set its name and HTTPS origin for MKVDrama. Websites require a dedicated scraper; an arbitrary website URL will not work.
+
+Keep your provider configuration local. Mist requires a valid `config.json` at startup, and the Dockerfile copies it during the build. After changing provider settings, restart Mist or rebuild your container deployment.
 
 Create `.env` with your storage credentials and a stable encryption key:
 
@@ -32,10 +45,6 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
 Use Upstash's **REST** credentials, rather than a `redis://` connection URL. Keep `.env` private and retain the same encryption key across deployments; existing TMDB credentials depend on it. Use separate databases and secrets for development or preview instances.
-
-Edit `config.json` to change provider names or endpoints. API providers support optional ordered `backup_apis`; websites require a dedicated scraper. Restart after editing, or rebuild your container deployment.
-
-See [`configexample.json`](configexample.json) for a minimal example with an API provider, optional backups and a website placeholder. Replace the example API URLs with your provider endpoints. For the supported website scraper, rename `mkvexample` to `mkvdrama` and set its URL to `https://mkvdrama.net` before use.
 
 ## 2. Create an account
 
