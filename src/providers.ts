@@ -88,17 +88,21 @@ export class Provider {
     return { items: data.list as Vod[], pages, endpoint };
   }
 
-  cachedMatch(key: string): Promise<Vod[]> | undefined {
+  async details(ids: string[]): Promise<Pick<Page, "items" | "endpoint">> {
+    const result = await this.request({ ac: "detail", ids: ids.join(",") }, 2 * 60_000);
+    return { items: result.data.list as Vod[], endpoint: result.endpoint };
+  }
+
+  cachedMatch(key: string): Promise<Pick<Page, "items" | "endpoint">> | undefined {
     const match = this.matches.peek(key);
     count(match ? "vod.mappingHits" : "vod.mappingMisses");
     return match?.then(async ({ ids, endpoint }) => {
-      const result = await this.request({ ac: "detail", ids: ids.join(",") }, 2 * 60_000);
+      const result = await this.details(ids);
       // Different endpoints can assign the same numeric ID to unrelated titles.
-      if (result.endpoint !== endpoint) return [];
-      const { data } = result;
-      const records = new Map((data.list as Vod[]).map(vod => [value(vod.vod_id), vod]));
+      if (result.endpoint !== endpoint) return { ...result, items: [] };
+      const records = new Map(result.items.map(vod => [value(vod.vod_id), vod]));
       // A partial response must rediscover replacements rather than hide missing sources.
-      return ids.every(id => records.has(id)) ? ids.map(id => records.get(id)!) : [];
+      return { ...result, items: ids.every(id => records.has(id)) ? ids.map(id => records.get(id)!) : [] };
     });
   }
 

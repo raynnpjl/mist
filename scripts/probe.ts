@@ -2,7 +2,7 @@ import "../src/env.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { readLimited } from "../src/cache.js";
-import { playables } from "../src/episodes.js";
+import { extractPlayback } from "../src/episodes.js";
 import { Kind, chineseKind, value } from "../src/model.js";
 import { Provider, UPSTREAM_HEADERS, createProviders, loadSources } from "../src/providers.js";
 
@@ -50,8 +50,8 @@ async function probe(provider: Provider, kind: Kind) {
       const data = await provider.page(1, category.id);
       for (const vod of data.items) {
         if (chineseKind(vod) !== kind) continue;
-        const stream = playables(vod, kind).find(p => new URL(p.url).pathname.endsWith(".m3u8"));
-        if (stream) { sample = { title: value(vod.vod_name), episode: stream.episode.title, url: stream.url }; break; }
+        const stream = extractPlayback(vod, provider.source.id).find(p => p.url && new URL(p.url).pathname.endsWith(".m3u8"));
+        if (stream?.url) { sample = { title: value(vod.vod_name), episode: stream.label, url: stream.url }; break; }
       }
       if (sample) break;
     }

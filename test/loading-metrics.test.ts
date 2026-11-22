@@ -50,7 +50,10 @@ test("cold and warm source reports count real Node calls, probes, cache reuse an
   const logs: any[] = [];
   t.mock.method(console, "info", (line: string) => logs.push(JSON.parse(line)));
   const fixture = fixtures([drama()], 1);
-  const service = new AddonService(fixture.providers, new MetadataResolver(fixture.fetcher, "private-tmdb-key"), fixture.fetcher, fixture.inspector);
+  const fetcher: typeof fetch = async (input, options) => String(input).includes("api.themoviedb.org/3/tv/210757/season/1?")
+    ? Response.json({ episodes: [{ episode_number: 1, name: "Episode 1", air_date: "2024-11-13" }] })
+    : fixture.fetcher(input, options);
+  const service = new AddonService(fixture.providers, new MetadataResolver(fetcher, "private-tmdb-key"), fetcher, fixture.inspector);
   const first = await observeLoading(() => service.streams("series", "tmdb:210757:1:1"));
   assert.deepEqual(await observeLoading(() => service.streams("series", "tmdb:210757:1:1")), first);
   assert.equal(logs[0].stages["vod.http"].calls, 1);
@@ -64,6 +67,7 @@ test("cold and warm source reports count real Node calls, probes, cache reuse an
   assert.equal(logs[1].stages["media.probe"], undefined);
   assert.equal(logs[1].counters["media.resultHits"], 1);
   assert.equal(logs[1].counters["vod.mappingHits"], 1);
+  assert.equal(logs[1].counters["vod.reconciliationHits"], 1);
   assert.doesNotMatch(JSON.stringify(logs), /private-tmdb-key|tmdb:210757|测试剧|\.example|https?:/);
 });
 

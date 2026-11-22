@@ -91,5 +91,5 @@ test("cached provider IDs are invalidated when backup failover changes their cat
   const page = await provider.page(1, undefined, "title");
   provider.rememberMatch("title", page.items, page.endpoint);
   now += 120001; useBackup = true;
-  assert.deepEqual(await provider.cachedMatch("title"), [], "same numeric ID on another endpoint must not be reused");
+  assert.deepEqual((await provider.cachedMatch("title"))?.items, [], "same numeric ID on another endpoint must not be reused");
 });

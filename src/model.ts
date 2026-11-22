@@ -2,13 +2,6 @@ export type Kind = "movie" | "drama" | "variety" | "animation";
 export type Vod = Record<string, unknown>;
 export interface Category { id: string; name: string }
 export interface Page { items: Vod[]; pages: number; endpoint: string }
-export interface Episode {
-  key: string;
-  title: string;
-  released?: string;
-}
-export interface Playable { episode: Episode; url: string; group: string }
-
 export const value = (input: unknown): string =>
   typeof input === "string" || typeof input === "number" ? String(input).trim() : "";
 
