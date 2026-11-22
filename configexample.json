@@ -1,0 +1,17 @@
+{
+  "api_site": {
+    "example": {
+      "api": "https://vod.example.com/api.php/provide/vod/",
+      "name": "Example VOD",
+      "backup_apis": [
+        "https://backup.example.com/api.php/provide/vod/"
+      ]
+    }
+  },
+  "web_site": {
+    "mkvexample": {
+      "url": "https://mkvexample.net",
+      "name": "MKVExample"
+    }
+  }
+}
