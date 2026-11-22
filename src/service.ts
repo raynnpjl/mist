@@ -130,6 +130,7 @@ export class AddonService {
         let name = normalized(value(vod.vod_name));
         const annualName = kind === "variety" && name.match(/^(.*)((?:19|20)\d{2})$/);
         if (annualName && annualName[2] === vodYear && allowed.has(annualName[1])) name = annualName[1];
+        if (kind === "animation" && request.season === 1 && name.endsWith("1") && allowed.has(name.slice(0, -1))) name = name.slice(0, -1);
         const collection = request.season! > 1 && title.names.some(n => normalized(n) === name) &&
           vodYear === String(title.year);
         if (!kind || (request.type === "movie" ? kind !== "movie" : kind === "movie") ||

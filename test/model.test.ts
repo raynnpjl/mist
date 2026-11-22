@@ -16,6 +16,29 @@ test("Chinese filtering uses origin/category, not dubbed language", () => {
   }
 });
 
+test("Chinese animation categories allow episodic animation without admitting foreign anime", () => {
+  for (const type_name of ["国产动漫", "中国动漫", "大陆动漫", "港台动漫", "动漫", "动漫片"]) {
+    assert.equal(chineseKind(drama(1, { type_name })), "animation", type_name);
+    assert.equal(chineseKind(drama(1, { type_name, vod_area: "国产" })), "animation", type_name);
+    assert.equal(chineseKind(drama(1, { type_name, vod_area: "日本", vod_lang: "国语" })), undefined, type_name);
+  }
+  for (const type_name of ["国产动漫", "中国动漫", "大陆动漫", "港台动漫"]) {
+    assert.equal(chineseKind(drama(1, { type_name, vod_area: "" })), "animation", type_name);
+  }
+  for (const type_name of ["动漫", "动漫片"]) {
+    assert.equal(chineseKind(drama(1, { type_name, vod_area: "", vod_lang: "国语" })), undefined, type_name);
+  }
+});
+
+test("Chinese animated films remain movies and require a Chinese origin", () => {
+  for (const type_name of ["动画片", "动漫电影", "动画电影"]) {
+    const vod = drama(1, { type_name, vod_play_url: "正片$https://v.example/movie.m3u8" });
+    assert.equal(chineseKind(vod), "movie", type_name);
+    assert.equal(chineseKind({ ...vod, vod_area: "日本", vod_lang: "国语" }), undefined, type_name);
+    assert.equal(chineseKind({ ...vod, vod_area: "" }), undefined, type_name);
+  }
+});
+
 test("grouped playback excludes webpage players and preserves signed HLS URLs", () => {
   const items = playables(drama(), "drama");
   assert.equal(items.length, 2);
