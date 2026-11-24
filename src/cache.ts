@@ -1,4 +1,4 @@
-import { count } from "./loading.js";
+import { workCount } from "./loading.js";
 
 export class Cache<T> {
   private entries = new Map<string, { expires: number; pending: Promise<T> }>();
@@ -66,7 +66,8 @@ export async function readLimited(response: Response, limit: number): Promise<st
   return (await readBytes(response, limit)).toString("utf8");
 }
 
-export async function readBytes(response: Response, limit: number): Promise<Buffer> {
+export async function readBytes(response: Response, limit: number,
+  checkPrefix?: (bytes: Buffer) => void): Promise<Buffer> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Empty response");
   const chunks: Uint8Array[] = [];
@@ -75,11 +76,17 @@ export async function readBytes(response: Response, limit: number): Promise<Buff
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      count("bodyBytesRead", value.length);
+      workCount("bodyBytesRead", value.length);
       size += value.length;
       if (size > limit) throw new Error("Response exceeded size limit");
       chunks.push(value);
+      if (checkPrefix && size >= 64) {
+        checkPrefix(Buffer.concat(chunks, 64));
+        checkPrefix = undefined;
+      }
     }
-    return Buffer.concat(chunks);
+    const bytes = Buffer.concat(chunks);
+    checkPrefix?.(bytes);
+    return bytes;
   } finally { await reader.cancel(); }
 }

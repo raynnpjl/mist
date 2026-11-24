@@ -104,7 +104,7 @@ Saving settings updates your existing installation URL. Enter the same access ke
 [MIT](LICENSE) © 2026 Mist contributors.
 
 <!-- Static badges also work when the repository is private. Keep versions in sync with package.json and package-lock.json. -->
-[badge-version]: https://img.shields.io/badge/version-1.5.2-0066CC?style=for-the-badge&labelColor=1a1a1a
+[badge-version]: https://img.shields.io/badge/version-1.5.3-0066CC?style=for-the-badge&labelColor=1a1a1a
 [badge-license]: https://img.shields.io/badge/license-MIT-0066CC?style=for-the-badge&labelColor=1a1a1a
 [badge-typescript]: https://img.shields.io/badge/TypeScript-7.0.2-3178C6?style=for-the-badge&logo=typescript&logoColor=white&labelColor=1a1a1a
 [badge-node]: https://img.shields.io/badge/Nodejs-22.17%2B-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white&labelColor=1a1a1a

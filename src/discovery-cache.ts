@@ -50,6 +50,9 @@ export class DiscoveryStore {
   async delete(key: string, signal?: AbortSignal): Promise<void> { await this.command(["DEL", key], signal); }
 }
 
+export const discoveryKey = (namespace: string, key: string) =>
+  `mist:discovery:v1:${namespace}:${createHash("sha256").update(key).digest("hex")}`;
+
 export class DiscoveryCache<T> {
   private memory: Cache<Record<T>>;
   constructor(private namespace: string, limit: number, private valid: (value: unknown) => value is T,
@@ -57,7 +60,7 @@ export class DiscoveryCache<T> {
 
   async get(key: string, ttl: number | ((value: T) => number), load: () => Promise<T>,
     signal?: AbortSignal, refresh = false): Promise<T> {
-    const id = `mist:discovery:v1:${this.namespace}:${createHash("sha256").update(key).digest("hex")}`;
+    const id = discoveryKey(this.namespace, key);
     if (refresh) this.memory.delete(id);
     const entry = await this.memory.get(id, record => Math.max(0, record.expires - Date.now()), async () => {
       if (refresh) await this.store.delete(id, signal);

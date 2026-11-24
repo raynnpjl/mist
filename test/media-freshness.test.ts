@@ -167,3 +167,84 @@ test("warm HLS checks honor the selected segment's byte range", async t => {
   assert.deepEqual(ranges, ["bytes=20000-20499"]);
   assert.equal(probes, 1);
 });
+
+test("a fresh direct redirect or strong ETag invalidates old FFprobe facts", async t => {
+  let now = 10_000, target = "episode-a.mp4", tag = '"a"', probes = 0, height = 360;
+  t.mock.method(Date, "now", () => now);
+  const inspector = new MediaInspector(async () => {
+    const response = new Response(new Uint8Array(1024).fill(1), { headers: { ETag: tag } });
+    return Object.defineProperty(response, "url", { value: `https://cdn.example/${target}` });
+  }, async () => { probes++; return { ...facts, height }; });
+  const url = "https://video.example/episode.mp4";
+  assert.equal((await inspector.inspect(url)).height, 360);
+  now += 30001;
+  target = "episode-b.mp4"; tag = '"b"'; height = 720;
+  assert.equal((await inspector.inspect(url)).height, 720);
+  now += 30001;
+  assert.equal((await inspector.inspect(url)).height, 720);
+  assert.equal(probes, 2, "the validated redirect and ETag can reuse the new facts");
+  now += 30001;
+  tag = '"c"'; height = 1080;
+  assert.equal((await inspector.inspect(url)).height, 1080);
+  assert.equal(probes, 3);
+});
+
+test("a changed master rendition invalidates facts from the same leaf URL", async t => {
+  let now = 10_000, switched = false, probes = 0;
+  t.mock.method(Date, "now", () => now);
+  const inspector = new MediaInspector(async input => String(input).endsWith("master.m3u8")
+    ? new Response(`#EXTM3U\n${switched ? '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="alt",NAME="Audio",URI="alt.m3u8"\n' : ""}#EXT-X-STREAM-INF:BANDWIDTH=400000${switched ? ',AUDIO="alt"' : ""}\nvideo.m3u8\n`)
+    : new Response("#EXTM3U\n#EXTINF:10,\nvideo.ts\n#EXT-X-ENDLIST\n"),
+  async () => { probes++; return { ...facts, audioCodec: switched ? "ac3" : "aac", channelLayout: "stereo" }; });
+  const url = "https://video.example/master.m3u8";
+  assert.equal((await inspector.inspect(url)).audioCodec, "aac");
+  switched = true;
+  now += 30001;
+  assert.equal((await inspector.inspect(url)).audioCodec, "ac3");
+  assert.equal(probes, 2);
+});
+
+test("a required init fetch can invalidate availability while retaining verified fMP4 facts", async t => {
+  let now = 10_000, initAvailable = true;
+  t.mock.method(Date, "now", () => now);
+  const reads: string[] = [];
+  const inspector = new MediaInspector(async input => {
+    const path = new URL(String(input)).pathname;
+    reads.push(path);
+    if (path === "/episode.m3u8") return new Response('#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:10,\nvideo.m4s\n#EXT-X-ENDLIST\n');
+    return path === "/init.mp4" && !initAvailable ? new Response("expired", { status: 403 }) :
+      new Response(new Uint8Array(1024).fill(1));
+  }, async () => ({ ...facts, channelLayout: "stereo" }), 6500, { lightweight: true });
+  const url = "https://video.example/episode.m3u8";
+  assert.equal((await inspector.inspect(url)).reachable, true);
+  assert.deepEqual(reads, ["/episode.m3u8"], "FFprobe supplied all cold details");
+  initAvailable = false;
+  now += 30001;
+  const unavailable = await inspector.inspect(url);
+  assert.equal(unavailable.reachable, false);
+  assert.equal(unavailable.resolutionEvidence?.height, 1080);
+  assert.deepEqual(reads.slice(-2), ["/video.m4s", "/init.mp4"]);
+});
+
+test("incomplete short verification retains dimensions and allows a longer probe to fill details", async () => {
+  const budgets: number[] = [];
+  const inspector = new MediaInspector(async () => new Response(null), async (_url, timeoutMs) => {
+    budgets.push(timeoutMs);
+    return { ...facts, audioCodec: timeoutMs > 1000 ? "aac" : undefined, channelLayout: timeoutMs > 1000 ? "stereo" : undefined };
+  });
+  const url = "https://fixture.example/episode.mp4";
+  assert.equal((await inspector.inspect(url, 1000)).resolutionEvidence?.verified, true);
+  assert.equal((await inspector.inspect(url, 1000)).audioCodec, undefined);
+  assert.equal((await inspector.inspect(url, 6500)).channelLayout, "stereo");
+  assert.deepEqual(budgets, [1000, 6500]);
+});
+
+test("verified height cannot inherit a width from declared playlist dimensions", async () => {
+  const inspector = new MediaInspector(async input => new Response(String(input).endsWith("/master.m3u8")
+    ? "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=1920x1080\nmedia.m3u8\n"
+    : "#EXTM3U\n#EXTINF:10,\nvideo.ts\n"), async () => ({ reachable: true, videoCodec: "h264", height: 720 }));
+  const result = await inspector.inspect("https://fixture.example/master.m3u8");
+  assert.equal(result.height, 720);
+  assert.equal(result.width, undefined);
+  assert.equal(result.resolutionEvidence?.width, undefined);
+});

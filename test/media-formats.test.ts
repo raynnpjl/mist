@@ -62,7 +62,8 @@ test("real MP4, TS, encrypted, fragmented and byte-range HLS retain verified med
       assert.ok(reads.every(url => url.pathname.endsWith(".m3u8")), "cold media requests must belong exclusively to FFprobe");
       now += 30001;
       assert.deepEqual(await inspector.inspect(`${origin}/${filename}`), cold);
-      assert.ok(reads.some(url => !url.pathname.endsWith(".m3u8")), "warm availability checks must read only a small prefix");
+      assert.equal(reads.some(url => !url.pathname.endsWith(".m3u8")), filename !== "encrypted.m3u8",
+        "plain assets use a bounded range and encrypted playback is rechecked with its key");
     });
   }
 });
