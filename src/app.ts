@@ -11,7 +11,7 @@ import { accessGate } from "./access.js";
 import { observeLoading } from "./loading.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.5.1", name: "Mist",
+  id: "org.mist.chinese", version: "1.5.2", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",

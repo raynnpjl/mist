@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { Cache } from "./cache.js";
 import { extractPlayback, episodeNormalizer, type Edition } from "./episodes.js";
-import { reconcileSeason, type SeasonMatches, type SeasonScope } from "./episode-matching.js";
+import { inferEpisodeDate, reconcileSeason, type SeasonMatches, type SeasonScope } from "./episode-matching.js";
 import { count, timed } from "./loading.js";
 import type { ApiSeason, Title, VideoRequest } from "./metadata.js";
 import { chineseKind, normalized, value, type Kind, type Page, type Vod } from "./model.js";
 import type { Provider } from "./providers.js";
 
-export interface VodMatch { vod: Vod; url: string; group: string; edition?: Edition }
+export interface VodMatch { vod: Vod; url: string; group: string; edition?: Edition; inferredLabel?: string }
 interface VerifiedRecord {
   vod: Vod;
   kind: Kind;
@@ -118,6 +118,8 @@ export async function discoverVod(provider: Provider, title: Title, request: Vid
   ];
   const queries = [...new Set([...exactQueries, ...exactQueries.map(plain), ...variants.slice(0, 8), ...(special ? [keepRunning.special.prefix] : [])])].slice(0, 24);
   const mappingKey = JSON.stringify([request.type, title.tmdbId, catalogSeason, names, summary, title.year]);
+  const inferred = new Map<string, VodMatch>();
+  const confirmedUrls = new Set<string>();
 
   function identify(vod: Vod, year: number, broadcastYears: Set<number>): VerifiedRecord | undefined {
     const kind = chineseKind(vod);
@@ -165,6 +167,10 @@ export async function discoverVod(provider: Provider, title: Title, request: Vid
         [...new Set([value(vod.vod_name), ...titles])]);
       if (!result.results.length) count("vod.discovery.emptyPlayback");
       for (const [reason, total] of result.counts) count(reason, total);
+      for (const { entry, status } of result.results) if (status === "confirmed" && entry.url) confirmedUrls.add(entry.url);
+      for (const { entry, label } of inferEpisodeDate(result, season, request.episode!, scope)) {
+        inferred.set(JSON.stringify([entry.url, label.date]), { vod, url: entry.url!, group: entry.group, inferredLabel: entry.label });
+      }
       return (result.byEpisode.get(request.episode!) || []).flatMap(({ entry, label }) =>
         entry.url && (includeExtras || !label.edition) ? [{ vod, url: entry.url, group: entry.group, edition: label.edition }] : []);
     }));
@@ -187,6 +193,7 @@ export async function discoverVod(provider: Provider, title: Title, request: Vid
   const seen = new Set<string>();
   const discoveredRecords = new Map<string, Map<string | Vod, Vod>>();
   let remaining = 24;
+  let completeSearch = true;
   const searchDeadline = performance.now() + 12_000;
   for (const query of queries) {
     for (let number = 1; number <= 5 && remaining > 0 && performance.now() < searchDeadline; number++) {
@@ -213,10 +220,16 @@ export async function discoverVod(provider: Provider, title: Title, request: Vid
       if (streams.some(stream => !stream.edition)) return [...streams, ...extras];
       extras = [...extras, ...streams];
       if (number >= page.pages) break;
-      if (number === 5) count("vod.discovery.pageLimit");
+      if (number === 5) { count("vod.discovery.pageLimit"); completeSearch = false; }
     }
-    if (remaining <= 0 || performance.now() >= searchDeadline) { count("vod.discovery.queryLimit"); break; }
+    if (remaining <= 0 || performance.now() >= searchDeadline) { count("vod.discovery.queryLimit"); completeSearch = false; break; }
   }
   if (!discovered && !mapped) count("vod.discovery.showNotFound");
+  // Finish strict discovery before inferring; a later record may supply an exact match or a competing candidate.
+  const recovered = [...inferred.values()].filter(match => !confirmedUrls.has(match.url));
+  if (completeSearch && recovered.length === 1) {
+    count("vod.match.inferred.nearby_date");
+    return [...extras, recovered[0]];
+  }
   return extras;
 }

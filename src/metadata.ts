@@ -43,7 +43,7 @@ export class MetadataResolver {
 
   private json(url: URL, ttl = 6 * 60 * 60_000): Promise<any> {
     return this.responses.get(url.href, value => value === undefined ? 5000 : ttl, () => this.pool.run(async () => {
-      const response = await timed("tmdb.http", () => this.fetcher(url, { headers: { "User-Agent": "Mist/1.5.1 (Stremio addon)", Accept: "application/json" },
+      const response = await timed("tmdb.http", () => this.fetcher(url, { headers: { "User-Agent": "Mist/1.5.2 (Stremio addon)", Accept: "application/json" },
         signal: AbortSignal.timeout(this.timeout) }));
       if (response.status === 404) { await response.body?.cancel(); return undefined; }
       if (!response.ok) {

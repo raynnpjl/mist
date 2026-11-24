@@ -18,12 +18,14 @@ const seasons = [
 const sources = loadSources();
 
 function special(season: number, episode = 1, date = seasons[season - 1].air_date, name = "主题故事", missingSeason = false,
-  raw?: { label?: string; title?: string }) {
+  raw?: { label?: string; title?: string; episodes?: { episode_number: number; name: string; air_date: string }[] }) {
   const theme = seasons[season - 1], fixture = fixtures([]);
   const searches: string[] = [];
   const fetcher: typeof fetch = async (input, options) => {
     const url = new URL(String(input));
     if (url.hostname === "api.themoviedb.org") {
+      if (url.pathname.endsWith(`/season/${season}`) && raw?.episodes) return Response.json({ season_number: season,
+        name: theme.name, air_date: theme.air_date, episodes: raw.episodes });
       if (url.pathname.includes("/episode/")) return Response.json({ name, air_date: date });
       return Response.json({ id: 239870, name: "奔跑吧·特别篇", original_name: "奔跑吧·特别篇", first_air_date: "2020-12-04",
         origin_country: ["CN"], seasons: missingSeason ? [] : seasons, alternative_titles: { results: seasons
@@ -62,6 +64,20 @@ test(`Keep Running Special season ${season.season_number} uses its themed provid
   assert.equal(streams.length, expected.length);
   assert.ok(streams.every(stream => stream.url.endsWith("/correct.m3u8")));
   assert.ok(streams.every(stream => stream.description.split("\n")[0].endsWith(` S${String(season.season_number).padStart(2, "0")}E01`)));
+});
+
+test("Keep Running 大湾区篇 recovers Feifan's next-day label when the full dated season is available", async () => {
+  const fixture = special(7, 1, undefined, undefined, false, { episodes: [
+    { episode_number: 1, name: "主题故事", air_date: "2026-11-21" },
+    { episode_number: 2, name: "再次出发", air_date: "2026-11-28" }
+  ] });
+  const streams = await fixture.service.streams("series", "tmdb:239870:7:1");
+  assert.equal(streams.length, sources.length);
+  assert.ok(streams.every(stream => stream.url.endsWith("/correct.m3u8")));
+  assert.deepEqual(streams.map(stream => stream.behaviorHints.bingeGroup.split(":")[1]), sources.map(source => source.id));
+  const feifan = streams.find(stream => stream.behaviorHints.bingeGroup.startsWith("mist:feifan:"))!;
+  assert.match(feifan.description, /Inferred date: 第20261122期/);
+  assert.match(feifan.description, /非凡云播/);
 });
 
 for (const [season, episode, date, name] of [
