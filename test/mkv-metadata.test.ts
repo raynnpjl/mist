@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DiscoveryStore } from "../src/discovery-cache.js";
 import { MkvHeaderInspector, parseMkvMetadata } from "../src/mkv-metadata.js";
 
 const limit = 128 * 1024;
@@ -119,4 +120,34 @@ test("subtitle labels use embedded languages and bitrate uses the whole-file siz
   assert.deepEqual(parseMkvMetadata({ streams: [{ codec_type: "subtitle", tags: { language: "en-abc" } }], format: { duration: "3600" } }, 900000000),
     { averageBitrate: 2_000_000 });
   assert.deepEqual(parseMkvMetadata({ format: { duration: "3600", bit_rate: "999999" } }, 0), {});
+});
+
+test("different MKV signatures share completed facts and keep failures and cancellation independent", async () => {
+  const signed = (signature: string) => ({ ...file, size: 900000000, url: `${file.url}?sign=${signature}` });
+  for (const kind of ["404", "cancel"]) {
+    const reads: string[] = [];
+    const invalid: string[] = [];
+    let started!: () => void;
+    const oldStarted = new Promise<void>(resolve => { started = resolve; });
+    const inspector = new MkvHeaderInspector(async (input, options) => {
+      const sign = new URL(String(input)).searchParams.get("sign")!;
+      reads.push(sign);
+      if (sign !== "old") return response();
+      started();
+      if (kind === "404") return new Response(null, { status: 404 });
+      return new Promise((_, reject) => {
+        options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), { once: true });
+      });
+    }, async () => probeResult, 3000, new DiscoveryStore({}));
+    const caller = new AbortController();
+    const old = inspector.inspect(signed("old"), () => invalid.push("old"), caller.signal);
+    const fresh = inspector.inspect(signed("fresh"), () => invalid.push("fresh"));
+    await oldStarted;
+    if (kind === "cancel") caller.abort();
+    assert.deepEqual(await old, {});
+    assert.equal((await fresh).subtitles, "Multiple");
+    assert.deepEqual(invalid, kind === "404" ? ["old"] : []);
+    assert.equal((await inspector.inspect(signed("next"))).subtitles, "Multiple");
+    assert.deepEqual(reads.sort(), ["fresh", "old"]);
+  }
 });

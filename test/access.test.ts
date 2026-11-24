@@ -134,7 +134,9 @@ test("unauthenticated APIs do no storage or provider work; player requests need 
   assert.match(html, /Access Key Required/);
   assert.ok(!html.includes(TEST_ACCESS_KEY));
   assert.equal((await fetch(`${base}/health`)).status, 200);
-  assert.equal((await fetch(`${base}/${id}/manifest.json`)).status, 200);
+  const manifest = await fetch(`${base}/${id}/manifest.json`);
+  assert.equal(manifest.status, 200);
+  assert.equal(manifest.headers.get("cache-control"), "private, no-store");
   assert.ok((await (await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`)).json()).streams.length);
   for (const key of [undefined, 1, "incorrect", "ff".repeat(32)]) {
     const denied = await login(key);

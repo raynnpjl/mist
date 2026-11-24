@@ -9,6 +9,7 @@ import { MkvDrama, MkvFile } from "./mkvdrama.js";
 import { RESOLUTIONS, resolutionFor } from "./resolutions.js";
 import { MkvHeaderInspector, MkvMetadata } from "./mkv-metadata.js";
 import { count, timed } from "./loading.js";
+import { identity, requestHeaders, urlLifetime } from "./shared-jobs.js";
 
 export type StreamProvider = Provider | MkvDrama;
 interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string; edition?: Edition;
@@ -76,7 +77,7 @@ export class AddonService {
     return resolution !== undefined && this.resolutions.includes(resolution);
   }
 
-  async streams(type: string, videoId: string): Promise<DirectStream[]> {
+  async streams(type: string, videoId: string, signal?: AbortSignal): Promise<DirectStream[]> {
     const request = parseVideo(type, videoId);
     if (!request) return [];
     const title = await timed("tmdb.title", () => this.metadata.title(request));
@@ -98,7 +99,7 @@ export class AddonService {
         const fileKey = (file: MkvFile) => JSON.stringify([file.url, file.filename, file.size, file.version, file.headers]);
         const inspect = (file: MkvFile) => {
           const key = fileKey(file);
-          if (!inspections.has(key) && this.allowsResolution(file.height)) inspections.set(key, this.mkvInspector.inspect(file, () => { invalid.add(key); }));
+          if (!inspections.has(key) && this.allowsResolution(file.height)) inspections.set(key, this.mkvInspector.inspect(file, () => { invalid.add(key); }, signal));
           return inspections.get(key) || Promise.resolve({} as MkvMetadata);
         };
         const files = (await provider.streams({ ...title, names }, request, episode?.year, async file => {
@@ -107,12 +108,20 @@ export class AddonService {
           .filter(file => this.allowsResolution(file.height));
         return Promise.all(files.map(async file => {
           const header = await inspect(file);
+          const observedAt = Date.now(), expiresIn = urlLifetime(file.url, Infinity);
+          const playbackExpiresAt = Number.isFinite(expiresIn) ? observedAt + expiresIn : undefined;
+          const media: MediaInfo = { reachable: false, height: file.height };
+          if (file.height) media.resolutionEvidence = {
+            height: file.height, source: "provider", verified: false,
+            mediaIdentity: identity(file.url, requestHeaders(file.headers ?? {})), observedAt,
+            expiresAt: observedAt, playbackExpiresAt
+          };
           return {
             candidate: { url: file.url, source: provider.source, group: `direct:${file.host}:${file.height || "unknown"}`,
               language: "Chinese", filename: file.filename, videoSize: file.size, host: file.host,
               subtitles: header.subtitles || file.subtitles || "Unknown", averageBitrate: header.averageBitrate, headers: file.headers,
               displayName: primaryNames.join(" ") || title.displayName },
-            media: { reachable: false, height: file.height } as MediaInfo
+            media
           };
         }));
       }
@@ -124,7 +133,7 @@ export class AddonService {
         if (!previous || matchRank(candidate) < matchRank(previous)) byUrl.set(url, candidate);
       }
       return Promise.all([...byUrl.values()].map(async candidate => ({ candidate,
-        media: await this.inspector.inspect(candidate.url, this.inspectionTimeoutMs) })));
+        media: await this.inspector.inspect(candidate.url, this.inspectionTimeoutMs, signal) })));
     })));
     if (results.length && results.every(r => r.status === "rejected")) throw new Error("All stream providers are temporarily unavailable");
     const unique = new Map<string, { candidate: Candidate; media: MediaInfo }>();

@@ -251,7 +251,9 @@ test("all providers recover a transient playlist failure before redirecting to t
   await once(server, "listening");
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
-    const { streams } = await (await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`)).json();
+    const streamsResponse = await fetch(`${base}/${id}/stream/series/tt26235088:1:1.json`);
+    assert.equal(streamsResponse.headers.get("cache-control"), "private, max-age=30");
+    const { streams } = await streamsResponse.json();
     assert.equal(streams.length, 5);
     for (const stream of streams) {
       const response = await fetch(stream.url, { redirect: "manual" });

@@ -46,6 +46,8 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 
 Use Upstash's **REST** credentials, rather than a `redis://` connection URL. Keep `.env` private and retain the same encryption key across deployments; existing TMDB credentials depend on it. Use separate databases and secrets for development or preview instances.
 
+Mist shares one FFprobe scheduler across media inspection, ad-clock analysis and MKV headers. See the [media inspection settings](media-inspection.md) for process limits, cache lifetimes and benchmark commands.
+
 ## 2. Create an account
 
 Initialize the Neon table once, then generate an access key:

@@ -1,17 +1,16 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { Cache, readBytes } from "./cache.js";
-import { DiscoveryCache, DiscoveryStore } from "./discovery-cache.js";
+import { readBytes } from "./cache.js";
+import { standaloneProbeScheduler } from "./probe-scheduler.js";
+import { CACHE_BYTES, identity, requestHeaders, ResultCache, SharedJobs, urlLifetime } from "./shared-jobs.js";
+import { discoveryKey, DiscoveryStore } from "./discovery-cache.js";
 import { mkvNetwork } from "./mkv-work.js";
 import { fileHost } from "./filehosts.js";
 import { subtitleLanguages } from "./model.js";
 import type { MkvFile } from "./mkvdrama.js";
 import type { Fetcher } from "./providers.js";
-import { timed } from "./loading.js";
+import { timed, workCount } from "./loading.js";
 
 export interface MkvMetadata { subtitles?: string; averageBitrate?: number }
-type HeaderProbe = (prefix: Buffer, timeoutMs: number) => Promise<any>;
-const run = promisify(execFile);
+type HeaderProbe = (prefix: Buffer, timeoutMs: number, signal?: AbortSignal) => Promise<any>;
 const HEADER_BYTES = 128 * 1024;
 const DAY = 24 * 60 * 60_000;
 class InvalidPlayback extends Error {}
@@ -38,15 +37,13 @@ function stableIdentity(file: Pick<MkvFile, "url" | "filename" | "size" | "versi
   if (id) return JSON.stringify([id, file.filename, file.size, file.version]);
 }
 
-const probeHeader: HeaderProbe = async (prefix, timeoutMs) => {
-  // FFprobe receives only the bounded prefix. It cannot open a URL or seek over the network.
-  const pending = run("ffprobe", ["-v", "error", "-max_alloc", "8388608", "-protocol_whitelist", "pipe",
+export const mkvHeaderProbe = (scheduler = standaloneProbeScheduler()): HeaderProbe => async (prefix, timeoutMs, signal) => {
+  // FFprobe receives only the bounded prefix.
+  const stdout = await scheduler.run(["-v", "error", "-max_alloc", "8388608", "-protocol_whitelist", "pipe",
     "-f", "matroska", "-probesize", String(HEADER_BYTES), "-analyzeduration", "0",
     "-show_entries", "stream=codec_type:stream_tags=language:format=duration", "-of", "json", "pipe:0"],
-  { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 64 * 1024, windowsHide: true });
-  pending.child.stdin?.on("error", () => { /* The process result reports a failed or truncated probe. */ });
-  pending.child.stdin?.end(prefix);
-  return JSON.parse((await pending).stdout);
+  { timeoutMs, input: prefix, maxOutput: 64 * 1024, signal });
+  return JSON.parse(stdout);
 };
 
 export function parseMkvMetadata(data: any, size: number): MkvMetadata {
@@ -63,13 +60,14 @@ export function parseMkvMetadata(data: any, size: number): MkvMetadata {
 }
 
 export class MkvHeaderInspector {
-  private cache = new Cache<MkvMetadata>(512);
-  private shared: DiscoveryCache<MkvMetadata>;
-  constructor(private fetcher: Fetcher = fetch, private probe: HeaderProbe = probeHeader, private timeoutMs = 3000, store = new DiscoveryStore()) {
-    this.shared = new DiscoveryCache("metadata", 512, metadata, store);
+  private cache: ResultCache<MkvMetadata>;
+  private jobs = new SharedJobs<MkvMetadata>("mkv.header", 40);
+  constructor(private fetcher: Fetcher = fetch, private probe: HeaderProbe = mkvHeaderProbe(), private timeoutMs = 3000,
+    private store = new DiscoveryStore(), cacheBytes = CACHE_BYTES / 8) {
+    this.cache = new ResultCache(512, cacheBytes);
   }
 
-  inspect(file: Pick<MkvFile, "url" | "filename" | "headers" | "size" | "version">, invalid?: () => void): Promise<MkvMetadata> {
+  inspect(file: Pick<MkvFile, "url" | "filename" | "headers" | "size" | "version">, invalid?: () => void, caller?: AbortSignal): Promise<MkvMetadata> {
     let url: URL;
     try { url = new URL(file.url); } catch { return Promise.resolve({}); }
     const host = fileHost(url.hostname);
@@ -80,11 +78,10 @@ export class MkvHeaderInspector {
     const headers = new Headers(file.headers);
     headers.set("Range", `bytes=0-${HEADER_BYTES - 1}`);
     headers.set("Accept-Encoding", "identity");
-    const key = JSON.stringify([url.href, file.filename, file.size, file.version, [...headers].sort()]);
-    const inspect = () => {
+    const key = identity(file.url, file.filename, file.size, file.version, requestHeaders(headers), this.timeoutMs);
+    const inspect = async (signal: AbortSignal) => {
       const deadline = Date.now() + this.timeoutMs;
-      const signal = AbortSignal.timeout(this.timeoutMs);
-      return mkvNetwork.run(async () => {
+      const { prefix, size } = await mkvNetwork.run(async () => {
         signal.throwIfAborted();
         const response = await timed("mkv.headerHttp", () => this.fetcher(url.href, { headers, signal, redirect: "manual" }));
         const range = response.headers.get("Content-Range")?.match(/^bytes 0-(\d+)\/(\d+)$/i);
@@ -102,17 +99,41 @@ export class MkvHeaderInspector {
           throw new Error("MKV host did not honor the bounded range");
         }
         const prefix = await readBytes(response, HEADER_BYTES);
+        workCount("mkv.header.sampleBytes", prefix.length);
         if (prefix.length !== end + 1 || prefix.length < 4 || prefix.readUInt32BE(0) !== 0x1a45dfa3) {
           throw new Error("Invalid Matroska header prefix");
         }
-        signal.throwIfAborted();
-        const result = parseMkvMetadata(await timed("mkv.headerProbe", () => this.probe(prefix, Math.max(1, deadline - Date.now()))), size);
-        signal.throwIfAborted();
-        return result;
+        return { prefix, size };
       }, signal, true);
+      signal.throwIfAborted();
+      const result = parseMkvMetadata(await timed("mkv.headerProbe",
+        () => this.probe(prefix, Math.max(1, deadline - Date.now()), signal)), size);
+      signal.throwIfAborted();
+      return result;
     };
-    const identity = stableIdentity(file, url);
-    return (identity ? this.shared.get(identity, DAY, inspect) : this.cache.get(key, DAY, inspect)).catch(error => {
+    const stable = stableIdentity(file, url);
+    const stableKey = stable ? discoveryKey("metadata", stable) : undefined;
+    const cached = this.cache.get(stableKey ?? key);
+    if (cached) return Promise.resolve(cached);
+    const jobLifetime = this.timeoutMs + 6000;
+    const waiting = caller ? AbortSignal.any([caller, AbortSignal.timeout(jobLifetime)]) : undefined;
+    return this.jobs.run(key, jobLifetime, async job => {
+      if (stableKey) {
+        const shared = await this.store.read(stableKey, metadata, job);
+        if (shared) {
+          this.cache.set(stableKey, shared.value, shared.expires - Date.now());
+          return shared.value;
+        }
+      }
+      job.throwIfAborted();
+      const value = await inspect(AbortSignal.any([job, AbortSignal.timeout(this.timeoutMs)]));
+      if (stableKey) {
+        this.cache.set(stableKey, value, DAY);
+        await this.store.write(stableKey, { value, expires: Date.now() + DAY }, job);
+      } else this.cache.set(key, value, urlLifetime(url.href, DAY));
+      return value;
+    }, waiting).catch(error => {
+      if (caller?.aborted) return {};
       if (error instanceof InvalidPlayback) invalid?.();
       return {};
     });

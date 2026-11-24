@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import express from "express";
 import { resolve } from "node:path";
 import { addonBuilder, getRouter, Manifest } from "stremio-addon-sdk";
@@ -11,7 +12,7 @@ import { accessGate } from "./access.js";
 import { observeLoading } from "./loading.js";
 
 export const manifest: Manifest & { stremioAddonsConfig: { issuer: string; signature: string } } = {
-  id: "org.mist.chinese", version: "1.5.2", name: "Mist",
+  id: "org.mist.chinese", version: "1.5.3", name: "Mist",
   description: "HTTP Addon for chinese content",
   stremioAddonsConfig: {
     issuer: "https://stremio-addons.net",
@@ -28,6 +29,7 @@ function manifestFor(req: express.Request): Manifest {
 
 export function createApp(installations: Accounts, createService: (key: string, settings: Settings) => AddonService, providers: StreamProvider[], playlists: HlsPlaylists, encryptionKey: string) {
   const routers = new Cache<ReturnType<typeof getRouter>>(512);
+  const streamRequest = new AsyncLocalStorage<AbortSignal>();
   const app = express();
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
@@ -108,19 +110,24 @@ export function createApp(installations: Accounts, createService: (key: string, 
       const source = playlists.source(req.params.token, id);
       if (!source) { res.status(400).json({ error: "Invalid playlist link" }); return; }
       res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "private, no-store" });
+      const disconnect = new AbortController();
+      const abort = () => disconnect.abort();
+      res.once("close", abort);
       try {
-        const body = await playlists.read(source, id, `${req.protocol}://${req.get("host")}`);
+        if (res.destroyed) return;
+        const body = await observeLoading(() => playlists.read(source, id, `${req.protocol}://${req.get("host")}`, disconnect.signal), "playback-playlist");
         res.type("application/vnd.apple.mpegurl").send(body);
       } catch (error) {
+        if (disconnect.signal.aborted) return;
         // A CDN can reject server requests while still allowing native players.
         const status = error instanceof Error ? error.message.match(/^Playlist HTTP (\d{3})$/)?.[1] : undefined;
         const reason = status ? `upstream-http-${status}` :
           error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name) ? "upstream-timeout" :
           error instanceof TypeError && error.message === "fetch failed" ? "upstream-network-error" : "playlist-processing-error";
         res.set({ "X-Mist-HLS-Repair": "bypassed", "X-Mist-HLS-Error": reason });
-        console.warn("[Mist HLS] Repair bypassed", { host: new URL(source).hostname, reason });
+        console.warn("[Mist HLS] Repair bypassed", { reason });
         res.redirect(307, source);
-      }
+      } finally { res.off("close", abort); }
     } catch (error) { next(error); }
   });
 
@@ -134,12 +141,21 @@ export function createApp(installations: Accounts, createService: (key: string, 
       const router = await routers.get(`${id}:${installation.revision}:${installedManifest.logo}`, 6 * 60 * 60_000, async () => {
         const service = createService(installation.apiKey, installation.settings);
         const builder = new addonBuilder(installedManifest);
-        builder.defineStreamHandler(async args => ({ streams: (await observeLoading(() => service.streams(args.type, args.id))).map(stream =>
+        builder.defineStreamHandler(async args => ({ streams: (await observeLoading(() => service.streams(args.type, args.id, streamRequest.getStore()))).map(stream =>
           /\.m3u8$/i.test(new URL(stream.url).pathname)
-            ? { ...stream, url: playlists.url(stream.url, id, new URL(installedManifest.logo!).origin) } : stream), cacheMaxAge: 30 }));
+            ? { ...stream, url: playlists.url(stream.url, id, new URL(installedManifest.logo!).origin) } : stream) }));
         return getRouter(builder.getInterface());
       });
-      router(req, res, next);
+      if (!req.path.startsWith("/stream/")) {
+        res.set("Cache-Control", "private, no-store");
+        router(req, res, next);
+        return;
+      }
+      if (res.destroyed) return;
+      res.set("Cache-Control", "private, max-age=30");
+      const disconnect = new AbortController();
+      res.once("close", () => disconnect.abort());
+      streamRequest.run(disconnect.signal, () => router(req, res, next));
     } catch (error) { next(error); }
   });
   app.use((_req, res) => res.status(404).json({ error: "Not found. Configure Mist at /configure." }));

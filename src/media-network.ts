@@ -1,8 +1,10 @@
 import { ProxyAgent } from "undici";
-import { MediaProbe, probeMedia, probeSegmentClock, SegmentProbe } from "./media.js";
+import { MediaProbe, probeMedia, probeSegmentClock, SegmentProbe, tsSampleProbe } from "./media.js";
+import { PlaylistFetcher } from "./playlist-fetch.js";
+import { standaloneProbeScheduler } from "./probe-scheduler.js";
 import type { Fetcher } from "./providers.js";
 
-export function createMediaNetwork(env: NodeJS.ProcessEnv = process.env) {
+export function createMediaNetwork(env: NodeJS.ProcessEnv = process.env, scheduler = standaloneProbeScheduler()) {
   let proxy: string | undefined;
   const value = env.MEDIA_PROXY_URL?.trim();
   if (value) {
@@ -18,7 +20,8 @@ export function createMediaNetwork(env: NodeJS.ProcessEnv = process.env) {
     const request = { ...options, dispatcher };
     return fetch(input, request);
   } : fetch;
-  const probe: MediaProbe = (url, timeout) => probeMedia(url, timeout, proxy);
-  const segmentProbe: SegmentProbe = (url, timeout) => probeSegmentClock(url, timeout, fetcher);
-  return { fetcher, probe, segmentProbe, close: async () => { await dispatcher?.close(); } };
+  const probe: MediaProbe = (url, timeout, signal) => probeMedia(url, timeout, proxy, scheduler, signal);
+  const segmentProbe: SegmentProbe = (url, timeout, signal) => probeSegmentClock(url, timeout, fetcher, scheduler, signal);
+  const playlists = new PlaylistFetcher(fetcher, proxy || "direct");
+  return { fetcher, playlists, probe, segmentProbe, sampleProbe: tsSampleProbe(scheduler), close: async () => { await dispatcher?.close(); } };
 }

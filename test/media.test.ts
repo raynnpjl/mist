@@ -41,7 +41,7 @@ test("successful inspections share verified facts across budgets and expire with
   t.mock.method(Date, "now", () => now);
   const inspector = new MediaInspector(async input => new Response(String(input).includes(".m3u8") ? "#EXTM3U\n#EXTINF:5,\nsegment.ts\n" : "media"), async () => {
     calls++;
-    return { reachable: true, width: 1920, height: 1080, videoCodec: "h264" };
+    return { reachable: true, width: 1920, height: 1080, videoCodec: "h264", audioCodec: "aac", channelLayout: "stereo" };
   });
   const url = "https://video.example/master.m3u8";
   const first = await inspector.inspect(url, 1000);
