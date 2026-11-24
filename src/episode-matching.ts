@@ -1,4 +1,4 @@
-import { type EpisodeLabel, type PlaybackEntry, normalizeEpisode } from "./episodes.js";
+import { type EpisodeLabel, type PlaybackEntry, isoDate, normalizeEpisode } from "./episodes.js";
 import type { ApiSeason } from "./metadata.js";
 
 export interface SeasonScope {
@@ -24,6 +24,23 @@ export interface SeasonMatches {
   results: Result[];
   byEpisode: ReadonlyMap<number, Result[]>;
   counts: ReadonlyMap<string, number>;
+}
+
+export function inferEpisodeDate(matches: SeasonMatches, season: ApiSeason, episode: number, scope: SeasonScope): Result[] {
+  // An individual episode or a partially dated season cannot rule out neighboring broadcasts.
+  if (!season.complete || season.episodes.some((item, index) => !item.date || !isoDate(item.date) || item.number !== index + 1)) return [];
+  const catalog = season.episodes.map(item => ({ ...item, time: Date.parse(item.date!), label: normalizeEpisode(item.name || "") }));
+  const requested = catalog.find(item => item.number === episode);
+  if (!requested || requested.label.edition || requested.label.contentType === "preview") return [];
+  const dates = new Set(catalog.map(item => item.date));
+  return matches.results.filter(({ entry, label, status, reason }) => {
+    if (status !== "unmatched" || reason !== "episode_not_found" || !entry.url || !label.date ||
+      label.contentType !== "regular_candidate" || label.edition || label.number !== undefined || label.descriptor ||
+      dates.has(label.date)) return false;
+    const nearby = catalog.filter(item => Math.abs(item.time - Date.parse(label.date!)) === 86_400_000 &&
+      (scope.fullBroadcast ? undefined : item.label.part) === label.part);
+    return nearby.length === 1 && nearby[0].number === episode;
+  });
 }
 
 function indexBy<T, K>(entries: T[], keyOf: (entry: T) => K | undefined): Map<K, T[]> {

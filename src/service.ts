@@ -12,7 +12,9 @@ import { count, timed } from "./loading.js";
 
 export type StreamProvider = Provider | MkvDrama;
 interface Candidate { url: string; source: Provider["source"]; group: string; language: string; releaseType?: string; edition?: Edition;
-  filename?: string; videoSize?: number; displayName?: string; host?: string; subtitles?: string; headers?: Record<string, string>; averageBitrate?: number }
+  inferredLabel?: string; filename?: string; videoSize?: number; displayName?: string; host?: string; subtitles?: string; headers?: Record<string, string>; averageBitrate?: number }
+
+const matchRank = (candidate: Candidate) => Number(Boolean(candidate.edition)) * 2 + Number(Boolean(candidate.inferredLabel));
 
 function present(candidate: Candidate, title: Title, request: VideoRequest, info: MediaInfo): DirectStream {
   const quality = info.height ? `${Math.round(info.height)}p` : "Unknown";
@@ -29,7 +31,8 @@ function present(candidate: Candidate, title: Title, request: VideoRequest, info
   if (subtitles === "Unknown") count("missing.subtitles");
   const sourceName = candidate.host ? `${candidate.source.name} · ${candidate.host}` : candidate.source.name;
   const edition = candidate.edition ? ` ${candidate.edition}` : "";
-  const description = [`${candidate.displayName || title.displayName} ${episode}${edition}`, `Bitrate: ${bitrate}`,
+  const description = [`${candidate.displayName || title.displayName} ${episode}${edition}`,
+    ...(candidate.inferredLabel ? [`Inferred date: ${candidate.inferredLabel}`] : []), `Bitrate: ${bitrate}`,
     `Language: ${candidate.language || "Unknown"}`, `Subtitle: ${subtitles}`,
     sourceName].join("\n");
   const extension = (candidate.filename || new URL(candidate.url).pathname).match(/\.(mp4|mkv)$/i)?.[1].toLowerCase() || "m3u8";
@@ -115,10 +118,10 @@ export class AddonService {
       }
       const matches = await discoverVod(provider, title, request, season, this.includeEpisodeExtras);
       const byUrl = new Map<string, Candidate>();
-      for (const { vod, url, group, edition } of matches) {
+      for (const { vod, url, group, edition, inferredLabel } of matches) {
         const previous = byUrl.get(url);
-        if (!previous || previous.edition && !edition) byUrl.set(url, { source: provider.source,
-          language: language(vod.vod_lang), url, group, edition, releaseType: releaseType(vod) });
+        const candidate = { source: provider.source, language: language(vod.vod_lang), url, group, edition, inferredLabel, releaseType: releaseType(vod) };
+        if (!previous || matchRank(candidate) < matchRank(previous)) byUrl.set(url, candidate);
       }
       return Promise.all([...byUrl.values()].map(async candidate => ({ candidate,
         media: await this.inspector.inspect(candidate.url, this.inspectionTimeoutMs) })));
@@ -128,7 +131,7 @@ export class AddonService {
     for (const result of results) if (result.status === "fulfilled") {
       for (const item of result.value) {
         const previous = unique.get(item.candidate.url);
-        if (!previous || previous.candidate.edition && !item.candidate.edition) unique.set(item.candidate.url, item);
+        if (!previous || matchRank(item.candidate) < matchRank(previous.candidate)) unique.set(item.candidate.url, item);
       }
     }
     const inspected = [...unique.values()].filter(({ media }) => this.allowsResolution(media.height)).map(({ candidate, media }) => {
